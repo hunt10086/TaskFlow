@@ -1,8 +1,25 @@
-use chrono::Utc;
+use chrono::Local;
 use rusqlite::{params, Connection, Result as SqliteResult};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::State;
+
+// 分页参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageFilter {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+}
+
+// 带分页的结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginatedTasks {
+    pub tasks: Vec<Task>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+}
 
 // 数据模型
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,14 +99,54 @@ fn get_db_path() -> String {
 
 // Tauri 命令
 
+// 根据任务类型计算默认截止日期
+fn calculate_default_due_date(task_type: &str, custom_due_date: Option<&str>) -> Option<String> {
+    // 如果用户提供了自定义截止日期，直接使用
+    if let Some(due_date) = custom_due_date {
+        if !due_date.is_empty() {
+            return Some(due_date.to_string());
+        }
+    }
+
+    // 根据任务类型计算默认截止日期
+    let now = Local::now();
+    let due_date = match task_type {
+        "daily" => {
+            // 每日任务：当天 23:59:59
+            format!("{} 23:59:59", now.format("%Y-%m-%d"))
+        }
+        "weekly" => {
+            // 每周任务：7天后 23:59:59
+            format!("{} 23:59:59", (now + chrono::Duration::days(7)).format("%Y-%m-%d"))
+        }
+        "monthly" => {
+            // 每月任务：30天后 23:59:59
+            format!("{} 23:59:59", (now + chrono::Duration::days(30)).format("%Y-%m-%d"))
+        }
+        "yearly" => {
+            // 每年任务：365天后 23:59:59
+            format!("{} 23:59:59", (now + chrono::Duration::days(365)).format("%Y-%m-%d"))
+        }
+        _ => {
+            // 默认：7天后 23:59:59
+            format!("{} 23:59:59", (now + chrono::Duration::days(7)).format("%Y-%m-%d"))
+        }
+    };
+
+    Some(due_date)
+}
+
 #[tauri::command]
 fn create_task(state: State<DbState>, task: NewTask) -> Result<Task, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    let created_at = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let created_at = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // 计算截止日期
+    let due_date = calculate_default_due_date(&task.task_type, task.due_date.as_deref());
 
     conn.execute(
         "INSERT INTO tasks (title, task_type, created_at, due_date, completed) VALUES (?1, ?2, ?3, ?4, 0)",
-        params![task.title, task.task_type, created_at, task.due_date],
+        params![task.title, task.task_type, created_at, due_date],
     )
     .map_err(|e| e.to_string())?;
 
@@ -100,7 +157,7 @@ fn create_task(state: State<DbState>, task: NewTask) -> Result<Task, String> {
         title: task.title,
         task_type: task.task_type,
         created_at,
-        due_date: task.due_date,
+        due_date,
         completed: false,
         completed_at: None,
     })
@@ -169,7 +226,7 @@ fn get_tasks(state: State<DbState>, filter: Option<QueryFilter>) -> Result<Vec<T
 #[tauri::command]
 fn complete_task(state: State<DbState>, id: i64) -> Result<Task, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    let completed_at = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let completed_at = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     conn.execute(
         "UPDATE tasks SET completed = 1, completed_at = ?1 WHERE id = ?2",
@@ -255,18 +312,22 @@ fn get_stats(state: State<DbState>, task_type: Option<String>) -> Result<Stats, 
 fn get_completed_history(
     state: State<DbState>,
     filter: Option<QueryFilter>,
-) -> Result<Vec<Task>, String> {
+    pagination: Option<PageFilter>,
+) -> Result<PaginatedTasks, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
 
-    let mut sql =
-        "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks WHERE completed = 1"
-            .to_string();
+    let page = pagination.as_ref().and_then(|p| p.page).unwrap_or(1).max(1);
+    let page_size = pagination.as_ref().and_then(|p| p.page_size).unwrap_or(20).max(1).min(100);
+    let offset = (page - 1) * page_size;
+
+    // 构建WHERE条件
+    let mut where_clause = String::from("WHERE completed = 1");
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(f) = &filter {
         if let Some(ref task_type) = f.task_type {
             if !task_type.is_empty() && task_type != "all" {
-                sql.push_str(" AND task_type = ?");
+                where_clause.push_str(" AND task_type = ?");
                 params_vec.push(Box::new(task_type.clone()));
             }
         }
@@ -275,20 +336,33 @@ fn get_completed_history(
         if let (Some(start), Some(end)) = (&f.start_date, &f.end_date) {
             if !start.is_empty() && !end.is_empty() {
                 let date_field = f.date_field.as_deref().unwrap_or("completed_at");
-                sql.push_str(&format!(" AND {} BETWEEN ? AND ?", date_field));
+                where_clause.push_str(&format!(" AND {} BETWEEN ? AND ?", date_field));
                 params_vec.push(Box::new(start.clone()));
                 params_vec.push(Box::new(end.clone()));
             } else if let Some(single_date) = f.start_date.as_ref().filter(|d| !d.is_empty()) {
                 let date_field = f.date_field.as_deref().unwrap_or("completed_at");
-                sql.push_str(&format!(" AND date({}) = date(?)", date_field));
+                where_clause.push_str(&format!(" AND date({}) = date(?)", date_field));
                 params_vec.push(Box::new(single_date.clone()));
             }
         }
     }
 
-    sql.push_str(" ORDER BY completed_at DESC");
-
+    // 获取总数
+    let count_sql = format!("SELECT COUNT(*) FROM tasks {}", where_clause);
     let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    let total: i64 = conn
+        .query_row(&count_sql, params_refs.as_slice(), |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    // 获取分页数据
+    let sql = format!(
+        "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks {} ORDER BY completed_at DESC LIMIT ? OFFSET ?",
+        where_clause
+    );
+    // 收集原始参数的引用
+    let mut params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    params_refs.push(&page_size);
+    params_refs.push(&offset);
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let tasks = stmt
@@ -307,25 +381,37 @@ fn get_completed_history(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
-    Ok(tasks)
+    let total_pages = (total as f64 / page_size as f64).ceil() as i64;
+
+    Ok(PaginatedTasks {
+        tasks,
+        total,
+        page,
+        page_size,
+        total_pages,
+    })
 }
 
 #[tauri::command]
 fn get_uncompleted_history(
     state: State<DbState>,
     filter: Option<QueryFilter>,
-) -> Result<Vec<Task>, String> {
+    pagination: Option<PageFilter>,
+) -> Result<PaginatedTasks, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
 
-    let mut sql =
-        "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks WHERE completed = 0"
-            .to_string();
+    let page = pagination.as_ref().and_then(|p| p.page).unwrap_or(1).max(1);
+    let page_size = pagination.as_ref().and_then(|p| p.page_size).unwrap_or(20).max(1).min(100);
+    let offset = (page - 1) * page_size;
+
+    // 构建WHERE条件
+    let mut where_clause = String::from("WHERE completed = 0");
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(f) = &filter {
         if let Some(ref task_type) = f.task_type {
             if !task_type.is_empty() && task_type != "all" {
-                sql.push_str(" AND task_type = ?");
+                where_clause.push_str(" AND task_type = ?");
                 params_vec.push(Box::new(task_type.clone()));
             }
         }
@@ -334,20 +420,33 @@ fn get_uncompleted_history(
         if let (Some(start), Some(end)) = (&f.start_date, &f.end_date) {
             if !start.is_empty() && !end.is_empty() {
                 let date_field = f.date_field.as_deref().unwrap_or("created_at");
-                sql.push_str(&format!(" AND {} BETWEEN ? AND ?", date_field));
+                where_clause.push_str(&format!(" AND {} BETWEEN ? AND ?", date_field));
                 params_vec.push(Box::new(start.clone()));
                 params_vec.push(Box::new(end.clone()));
             } else if let Some(single_date) = f.start_date.as_ref().filter(|d| !d.is_empty()) {
                 let date_field = f.date_field.as_deref().unwrap_or("created_at");
-                sql.push_str(&format!(" AND date({}) = date(?)", date_field));
+                where_clause.push_str(&format!(" AND date({}) = date(?)", date_field));
                 params_vec.push(Box::new(single_date.clone()));
             }
         }
     }
 
-    sql.push_str(" ORDER BY created_at DESC");
-
+    // 获取总数
+    let count_sql = format!("SELECT COUNT(*) FROM tasks {}", where_clause);
     let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    let total: i64 = conn
+        .query_row(&count_sql, params_refs.as_slice(), |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    // 获取分页数据
+    let sql = format!(
+        "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        where_clause
+    );
+    // 收集原始参数的引用
+    let mut params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    params_refs.push(&page_size);
+    params_refs.push(&offset);
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let tasks = stmt
@@ -366,30 +465,59 @@ fn get_uncompleted_history(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
-    Ok(tasks)
+    let total_pages = (total as f64 / page_size as f64).ceil() as i64;
+
+    Ok(PaginatedTasks {
+        tasks,
+        total,
+        page,
+        page_size,
+        total_pages,
+    })
 }
 
 // 获取过期任务（已过期且未完成）
 #[tauri::command]
-fn get_expired_tasks(state: State<DbState>, task_type: Option<String>) -> Result<Vec<Task>, String> {
+fn get_expired_tasks(
+    state: State<DbState>,
+    task_type: Option<String>,
+    pagination: Option<PageFilter>,
+) -> Result<PaginatedTasks, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = Local::now().format("%Y-%m-%d").to_string();
 
-    let mut sql = "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks WHERE completed = 0 AND due_date IS NOT NULL AND due_date < ?"
-        .to_string();
+    let page = pagination.as_ref().and_then(|p| p.page).unwrap_or(1).max(1);
+    let page_size = pagination.as_ref().and_then(|p| p.page_size).unwrap_or(20).max(1).min(100);
+    let offset = (page - 1) * page_size;
+
+    // 构建WHERE条件
+    let mut where_clause = String::from("WHERE completed = 0 AND due_date IS NOT NULL AND due_date < ?");
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     params_vec.push(Box::new(today.clone()));
 
     if let Some(ref t) = task_type {
         if !t.is_empty() && t != "all" {
-            sql.push_str(" AND task_type = ?");
+            where_clause.push_str(" AND task_type = ?");
             params_vec.push(Box::new(t.clone()));
         }
     }
 
-    sql.push_str(" ORDER BY due_date ASC");
-
+    // 获取总数
+    let count_sql = format!("SELECT COUNT(*) FROM tasks {}", where_clause);
     let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    let total: i64 = conn
+        .query_row(&count_sql, params_refs.as_slice(), |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    // 获取分页数据
+    let sql = format!(
+        "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks {} ORDER BY due_date ASC LIMIT ? OFFSET ?",
+        where_clause
+    );
+    // 收集原始参数的引用
+    let mut params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    params_refs.push(&page_size);
+    params_refs.push(&offset);
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let tasks = stmt
@@ -408,21 +536,69 @@ fn get_expired_tasks(state: State<DbState>, task_type: Option<String>) -> Result
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
-    Ok(tasks)
+    let total_pages = (total as f64 / page_size as f64).ceil() as i64;
+
+    Ok(PaginatedTasks {
+        tasks,
+        total,
+        page,
+        page_size,
+        total_pages,
+    })
+}
+
+// 获取贡献数据（过去一年的每日完成任务数）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContributionDay {
+    pub date: String,
+    pub count: i64,
+}
+
+#[tauri::command]
+fn get_contribution_data(state: State<DbState>) -> Result<Vec<ContributionDay>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    // 获取过去365天的日期
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let one_year_ago = (Local::now() - chrono::Duration::days(365)).format("%Y-%m-%d").to_string();
+
+    let sql = "SELECT date(completed_at) as date, COUNT(*) as count
+               FROM tasks
+               WHERE completed = 1 AND completed_at IS NOT NULL
+               AND date(completed_at) BETWEEN ? AND ?
+               GROUP BY date(completed_at)
+               ORDER BY date ASC";
+
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    let contributions: Vec<ContributionDay> = stmt
+        .query_map(params![one_year_ago, today], |row| {
+            Ok(ContributionDay {
+                date: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(contributions)
 }
 
 // 批量创建任务
 #[tauri::command]
 fn create_tasks_batch(state: State<DbState>, tasks: Vec<NewTask>) -> Result<Vec<Task>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    let created_at = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let created_at = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let mut result_tasks: Vec<Task> = Vec::new();
 
     for task in tasks {
+        // 计算截止日期
+        let due_date = calculate_default_due_date(&task.task_type, task.due_date.as_deref());
+
         conn.execute(
             "INSERT INTO tasks (title, task_type, created_at, due_date, completed) VALUES (?1, ?2, ?3, ?4, 0)",
-            params![task.title, task.task_type, created_at, task.due_date],
+            params![task.title, task.task_type, created_at, due_date],
         )
         .map_err(|e| e.to_string())?;
 
@@ -433,7 +609,7 @@ fn create_tasks_batch(state: State<DbState>, tasks: Vec<NewTask>) -> Result<Vec<
             title: task.title,
             task_type: task.task_type,
             created_at: created_at.clone(),
-            due_date: task.due_date,
+            due_date,
             completed: false,
             completed_at: None,
         });
@@ -489,6 +665,7 @@ pub fn run() {
             get_uncompleted_history,
             get_expired_tasks,
             create_tasks_batch,
+            get_contribution_data,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用时出错");

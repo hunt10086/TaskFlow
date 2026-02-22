@@ -32,10 +32,33 @@ interface Stats {
   completion_rate: number;
 }
 
+interface PageFilter {
+  page?: number;
+  page_size?: number;
+}
+
+interface PaginatedTasks {
+  tasks: Task[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+interface ContributionDay {
+  date: string;
+  count: number;
+}
+
 // 状态
-let currentView: "tasks" | "history" | "expired" = "tasks";
+let currentView: "tasks" | "history" | "expired" | "annual" = "tasks";
 let currentTaskType: string = "all";
 let historyType: "completed" | "uncompleted" = "completed";
+
+// 分页状态
+let currentPage: number = 1;
+const PAGE_SIZE: number = 20;
+let totalPages: number = 1;
 
 // DOM 元素
 const elements = {
@@ -43,6 +66,7 @@ const elements = {
   viewTasks: document.getElementById("view-tasks") as HTMLDivElement,
   viewHistory: document.getElementById("view-history") as HTMLDivElement,
   viewExpired: document.getElementById("view-expired") as HTMLDivElement,
+  viewAnnual: document.getElementById("view-annual") as HTMLDivElement,
   taskList: document.getElementById("task-list") as HTMLDivElement,
   historyList: document.getElementById("history-list") as HTMLDivElement,
   expiredList: document.getElementById("expired-list") as HTMLDivElement,
@@ -89,6 +113,13 @@ const elements = {
   queryStartDate: document.getElementById("query-start-date") as HTMLInputElement,
   queryEndDate: document.getElementById("query-end-date") as HTMLInputElement,
   btnQuery: document.getElementById("btn-query") as HTMLButtonElement,
+
+  // 分页
+  expiredPagination: document.getElementById("expired-pagination") as HTMLDivElement,
+  historyPagination: document.getElementById("history-pagination") as HTMLDivElement,
+
+  // 贡献热力图
+  contributionGraph: document.getElementById("contribution-graph") as HTMLDivElement,
 };
 
 // 初始化
@@ -97,6 +128,7 @@ async function init() {
   await loadStats();
   await loadTasks();
   await loadExpiredTasks(); // 加载过期任务数量
+  await loadContributionData(); // 加载贡献数据
 }
 
 // 事件监听
@@ -104,7 +136,7 @@ function setupEventListeners() {
   // 导航点击
   elements.navItems.forEach((item) => {
     item.addEventListener("click", () => {
-      const view = item.dataset.view as "tasks" | "history" | "expired";
+      const view = item.dataset.view as "tasks" | "history" | "expired" | "annual";
       const type = item.dataset.type as string;
 
       elements.navItems.forEach((nav) => nav.classList.remove("active"));
@@ -117,6 +149,9 @@ function setupEventListeners() {
       } else if (view === "expired") {
         currentView = "expired";
         showExpiredView();
+      } else if (view === "annual") {
+        currentView = "annual";
+        showAnnualView();
       } else {
         currentView = "history";
         historyType = type as "completed" | "uncompleted";
@@ -163,6 +198,14 @@ function setupEventListeners() {
   elements.btnQuery.addEventListener("click", () => {
     loadHistory();
   });
+
+  // 点击侧边栏贡献卡片跳转到年度记录
+  elements.contributionGraph.addEventListener("click", () => {
+    const annualNavItem = document.querySelector('.nav-item[data-view="annual"]');
+    if (annualNavItem) {
+      annualNavItem.dispatchEvent(new Event("click"));
+    }
+  });
 }
 
 // 显示任务视图
@@ -204,6 +247,9 @@ async function showHistoryView(type: string) {
   // 隐藏新建任务按钮
   elements.btnAddTask.style.display = "none";
 
+  // 重置分页
+  currentPage = 1;
+
   // 加载历史记录
   historyType = type as "completed" | "uncompleted";
   await loadHistory();
@@ -221,8 +267,154 @@ async function showExpiredView() {
   // 隐藏新建任务按钮
   elements.btnAddTask.style.display = "none";
 
+  // 重置分页
+  currentPage = 1;
+
   // 加载过期任务
   await loadExpiredTasks();
+}
+
+// 显示年度记录视图
+async function showAnnualView() {
+  elements.viewTasks.style.display = "none";
+  elements.viewHistory.style.display = "none";
+  elements.viewExpired.style.display = "none";
+  elements.viewAnnual.style.display = "block";
+
+  // 隐藏新建任务按钮
+  elements.btnAddTask.style.display = "none";
+
+  // 加载年度记录数据
+  await loadAnnualData();
+}
+
+// 加载年度记录数据
+async function loadAnnualData() {
+  try {
+    const contributions = await invoke<ContributionDay[]>("get_contribution_data");
+    renderAnnualGraph(contributions);
+
+    // 计算统计数据
+    let total = 0;
+    let completed = 0;
+    contributions.forEach((c) => {
+      total += c.count;
+      completed += c.count;
+    });
+
+    // 计算连续天数
+    const streak = calculateStreak(contributions);
+
+    // 更新统计显示
+    const annualTotalEl = document.getElementById("annual-total");
+    const annualCompletedEl = document.getElementById("annual-completed");
+    const annualStreakEl = document.getElementById("annual-streak");
+
+    if (annualTotalEl) annualTotalEl.textContent = total.toString();
+    if (annualCompletedEl) annualCompletedEl.textContent = completed.toString();
+    if (annualStreakEl) annualStreakEl.textContent = streak.toString();
+  } catch (error) {
+    console.error("加载年度记录失败:", error);
+  }
+}
+
+// 计算连续完成任务天数
+function calculateStreak(contributions: ContributionDay[]): number {
+  if (contributions.length === 0) return 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let streak = 0;
+  let currentDate = new Date(today);
+
+  // 创建一个日期到完成数的映射
+  const contributionMap = new Map<string, number>();
+  contributions.forEach((c) => {
+    contributionMap.set(c.date, c.count);
+  });
+
+  // 从今天开始往前数
+  while (true) {
+    const dateStr = currentDate.toISOString().split("T")[0];
+    const count = contributionMap.get(dateStr);
+
+    if (count && count > 0) {
+      streak++;
+      currentDate.setDate(currentDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+
+  return streak;
+}
+
+// 渲染年度大图
+function renderAnnualGraph(contributions: ContributionDay[]) {
+  const container = document.getElementById("contribution-graph-large");
+  if (!container) return;
+
+  const contributionMap = new Map<string, number>();
+  contributions.forEach((c) => {
+    contributionMap.set(c.date, c.count);
+  });
+
+  const today = new Date();
+  const days: string[] = [];
+
+  // 找到第一个周一
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - 52 * 7 - today.getDay() + 1);
+
+  for (let i = 0; i < 53 * 7; i++) {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + i);
+    if (date <= today) {
+      days.push(date.toISOString().split("T")[0]);
+    }
+  }
+
+  let maxCount = 0;
+  contributions.forEach((c) => {
+    if (c.count > maxCount) maxCount = c.count;
+  });
+
+  const html = days
+    .map((date) => {
+      const count = contributionMap.get(date) || 0;
+      let level = 0;
+      if (maxCount > 0) {
+        const ratio = count / maxCount;
+        if (ratio === 0) level = 0;
+        else if (ratio <= 0.25) level = 1;
+        else if (ratio <= 0.5) level = 2;
+        else if (ratio <= 0.75) level = 3;
+        else level = 4;
+      }
+      return `<div class="contribution-day level-${level}" title="${date}: ${count}个任务"></div>`;
+    })
+    .join("");
+
+  container.innerHTML = html;
+
+  // 渲染月份标签
+  const monthsEl = document.getElementById("annual-months");
+  if (monthsEl) {
+    const months = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+    const monthLabels: string[] = [];
+    let lastMonth = -1;
+
+    days.forEach((date, index) => {
+      const month = new Date(date).getMonth();
+      if (month !== lastMonth) {
+        monthLabels.push(`<span style="grid-column: ${Math.floor(index / 7) + 1}">${months[month]}</span>`);
+        lastMonth = month;
+      }
+    });
+
+    monthsEl.innerHTML = monthLabels.join("");
+  }
 }
 
 // 关闭模态框
@@ -255,11 +447,15 @@ async function loadTasks() {
 // 加载过期任务
 async function loadExpiredTasks() {
   try {
-    const tasks = await invoke<Task[]>("get_expired_tasks", {
+    const pagination: PageFilter = { page: currentPage, page_size: PAGE_SIZE };
+    const result = await invoke<PaginatedTasks>("get_expired_tasks", {
       taskType: currentTaskType !== "all" ? currentTaskType : null,
+      pagination,
     });
-    renderExpiredTasks(tasks);
-    updateExpiredCount(tasks.length);
+    renderExpiredTasks(result.tasks);
+    updateExpiredCount(result.total);
+    totalPages = result.total_pages;
+    renderPagination(elements.expiredPagination);
   } catch (error) {
     console.error("加载过期任务失败:", error);
   }
@@ -367,21 +563,25 @@ async function loadHistory() {
       date_field: elements.queryDateField.value,
     };
 
-    let tasks: Task[];
+    const pagination: PageFilter = { page: currentPage, page_size: PAGE_SIZE };
+
+    let result: PaginatedTasks;
 
     if (historyType === "completed") {
-      tasks = await invoke<Task[]>("get_completed_history", { filter });
+      result = await invoke<PaginatedTasks>("get_completed_history", { filter, pagination });
     } else {
-      tasks = await invoke<Task[]>("get_uncompleted_history", { filter });
+      result = await invoke<PaginatedTasks>("get_uncompleted_history", { filter, pagination });
     }
 
-    renderHistory(tasks);
+    renderHistory(result.tasks);
+    totalPages = result.total_pages;
+    renderPagination(elements.historyPagination);
   } catch (error) {
     console.error("加载历史记录失败:", error);
   }
 }
 
-// 渲染历史记录
+// 渲染历史记录 - GitHub 风格
 function renderHistory(tasks: Task[]) {
   if (tasks.length === 0) {
     elements.historyList.innerHTML = "";
@@ -390,36 +590,45 @@ function renderHistory(tasks: Task[]) {
   }
 
   elements.emptyHistory.style.display = "none";
-  elements.historyList.innerHTML = tasks
-    .map(
-      (task) => `
-    <div class="task-card ${task.completed ? "completed" : ""}" data-id="${task.id}">
-      <label class="task-checkbox">
-        <input type="checkbox" ${task.completed ? "checked" : ""} ${task.completed ? "disabled" : ""} onchange="completeTask(${task.id})">
-        <span class="checkbox-custom"></span>
-      </label>
-      <div class="task-content">
-        <div class="task-title">${escapeHtml(task.title)}</div>
-        <div class="task-meta">
-          <span class="task-type-badge ${task.task_type}">${getTypeName(task.task_type)}</span>
-          <span>创建于 ${formatDate(task.created_at)}</span>
-          ${task.completed_at ? `<span>完成于 ${formatDate(task.completed_at)}</span>` : ""}
+
+  // 使用 GitHub 风格的提交时间线
+  elements.historyList.innerHTML = `
+    <div class="commit-timeline">
+      ${tasks
+        .map(
+          (task) => `
+        <div class="commit-item ${task.completed ? "completed" : ""}" data-id="${task.id}">
+          <div class="commit-header">
+            <span class="commit-title">${escapeHtml(task.title)}</span>
+            <span class="commit-time">${task.completed_at ? formatDate(task.completed_at) : ""}</span>
+          </div>
+          <div class="commit-meta">
+            <span class="task-type-badge ${task.task_type}">${getTypeName(task.task_type)}</span>
+            <span class="commit-hash">${generateShortHash(task.id)}</span>
+            <span>创建于 ${formatDate(task.created_at)}</span>
+          </div>
+          <div class="task-actions" style="margin-top: 8px;">
+            <button class="btn-action btn-delete" onclick="deleteTask(${task.id})" title="删除">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                <line x1="10" y1="11" x2="10" y2="17"/>
+                <line x1="14" y1="11" x2="14" y2="17"/>
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="task-actions">
-        <button class="btn-action btn-delete" onclick="deleteTask(${task.id})" title="删除">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-            <line x1="10" y1="11" x2="10" y2="17"/>
-            <line x1="14" y1="11" x2="14" y2="17"/>
-          </svg>
-        </button>
-      </div>
+      `
+        )
+        .join("")}
     </div>
-  `
-    )
-    .join("");
+  `;
+}
+
+// 生成短哈希（用于模拟 Git commit hash）
+function generateShortHash(id: number): string {
+  const hash = id.toString(16).padStart(7, "0");
+  return hash.substring(0, 7);
 }
 
 // 创建任务
@@ -544,6 +753,66 @@ async function loadStats() {
   }
 }
 
+// 加载贡献数据
+async function loadContributionData() {
+  try {
+    const contributions = await invoke<ContributionDay[]>("get_contribution_data");
+    renderContributionGraph(contributions);
+  } catch (error) {
+    console.error("加载贡献数据失败:", error);
+  }
+}
+
+// 渲染贡献热力图
+function renderContributionGraph(contributions: ContributionDay[]) {
+  const contributionMap = new Map<string, number>();
+  contributions.forEach((c) => {
+    contributionMap.set(c.date, c.count);
+  });
+
+  // 生成过去26周的日期（每周从周一开始）- 侧边栏简化版
+  const today = new Date();
+  const days: string[] = [];
+
+  // 找到上一个周一的日期（过去26周）
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - today.getDay() - (26 * 7) + 1);
+
+  for (let i = 0; i < 26 * 7; i++) {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + i);
+    if (date <= today) {
+      const dateStr = date.toISOString().split("T")[0];
+      days.push(dateStr);
+    }
+  }
+
+  // 确定最大贡献数
+  let maxCount = 0;
+  contributions.forEach((c) => {
+    if (c.count > maxCount) maxCount = c.count;
+  });
+
+  // 渲染格子
+  const html = days
+    .map((date) => {
+      const count = contributionMap.get(date) || 0;
+      let level = 0;
+      if (maxCount > 0) {
+        const ratio = count / maxCount;
+        if (ratio === 0) level = 0;
+        else if (ratio <= 0.25) level = 1;
+        else if (ratio <= 0.5) level = 2;
+        else if (ratio <= 0.75) level = 3;
+        else level = 4;
+      }
+      return `<div class="contribution-day level-${level}" title="${date}: ${count}个任务"></div>`;
+    })
+    .join("");
+
+  elements.contributionGraph.innerHTML = html;
+}
+
 // 工具函数
 function getTypeName(type: string): string {
   const names: Record<string, string> = {
@@ -558,6 +827,7 @@ function formatDate(dateStr: string): string {
   if (!dateStr) return "";
   const date = new Date(dateStr);
   return date.toLocaleDateString("zh-CN", {
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -571,9 +841,75 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+// 渲染分页
+function renderPagination(container: HTMLDivElement) {
+  if (totalPages <= 1) {
+    container.innerHTML = "";
+    return;
+  }
+
+  let html = `
+    <button class="pagination-btn" onclick="goToPage(${currentPage - 1})" ${currentPage <= 1 ? "disabled" : ""}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </button>
+  `;
+
+  // 页码按钮
+  const maxVisiblePages = 5;
+  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+  if (endPage - startPage < maxVisiblePages - 1) {
+    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  }
+
+  if (startPage > 1) {
+    html += `<button class="pagination-btn" onclick="goToPage(1)">1</button>`;
+    if (startPage > 2) {
+      html += `<span class="pagination-info">...</span>`;
+    }
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    html += `<button class="pagination-btn ${i === currentPage ? "active" : ""}" onclick="goToPage(${i})">${i}</button>`;
+  }
+
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) {
+      html += `<span class="pagination-info">...</span>`;
+    }
+    html += `<button class="pagination-btn" onclick="goToPage(${totalPages})">${totalPages}</button>`;
+  }
+
+  html += `
+    <button class="pagination-btn" onclick="goToPage(${currentPage + 1})" ${currentPage >= totalPages ? "disabled" : ""}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </button>
+  `;
+
+  container.innerHTML = html;
+}
+
+// 跳转页面
+async function goToPage(page: number) {
+  if (page < 1 || page > totalPages) return;
+  currentPage = page;
+
+  if (currentView === "expired") {
+    await loadExpiredTasks();
+  } else if (currentView === "history") {
+    await loadHistory();
+  }
+}
+
 // 全局函数（供 onclick 使用）
 (window as any).completeTask = completeTask;
 (window as any).deleteTask = deleteTask;
+(window as any).goToPage = goToPage;
 
 // 启动应用
 window.addEventListener("DOMContentLoaded", init);

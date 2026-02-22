@@ -80,6 +80,7 @@ body {
   flex-direction: column;
   padding: var(--space-lg);
   border-right: 1px solid var(--border-color);
+  overflow-y: auto;
 }
 
 .logo {
@@ -152,9 +153,16 @@ body {
   margin: var(--space-lg) 0;
 }
 
+/* 侧边栏底部容器 */
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
 /* 统计卡片 */
 .stats-card {
-  margin-top: auto;
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
@@ -252,6 +260,63 @@ body {
   flex: 1;
   padding: var(--space-xl);
   overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 分页容器 */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border-color);
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 var(--space-md);
+}
+
+.pagination-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.pagination-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* 任务列表 */
@@ -624,6 +689,13 @@ body {
   margin-bottom: var(--space-sm);
 }
 
+.due-date-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: var(--space-xs);
+}
+
 .form-group input[type="text"],
 .form-group input[type="date"] {
   width: 100%;
@@ -888,6 +960,74 @@ body {
   height: 16px;
 }
 
+/* 贡献热力图 - 侧边栏小图 */
+.contribution-card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.contribution-card:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-1px);
+}
+
+.contribution-graph {
+  display: grid;
+  grid-template-columns: repeat(26, 1fr);
+  gap: 1px;
+}
+
+.contribution-day {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: var(--border-color);
+}
+
+.contribution-day.level-0 {
+  background: #ebedf0;
+}
+
+.contribution-day.level-1 {
+  background: #9be9a8;
+}
+
+.contribution-day.level-2 {
+  background: #40c463;
+}
+
+.contribution-day.level-3 {
+  background: #30a14e;
+}
+
+.contribution-day.level-4 {
+  background: #216e39;
+}
+
+.contribution-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.legend-squares {
+  display: flex;
+  gap: 2px;
+}
+
+.legend-squares .contribution-day {
+  width: 10px;
+  height: 10px;
+}
+
 /* GitHub风格提交记录时间线 */
 .commit-timeline {
   position: relative;
@@ -982,4 +1122,101 @@ body {
   height: 48px;
   margin-bottom: var(--space-md);
   opacity: 0.5;
+}
+
+/* 年度记录视图 */
+#view-annual {
+  display: none;
+}
+
+.annual-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-xl);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.annual-header h2 {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.annual-stats {
+  display: flex;
+  gap: var(--space-xl);
+}
+
+.annual-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.annual-stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.annual-stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: var(--space-xs);
+}
+
+.annual-graph-container {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-soft);
+  overflow-x: auto;
+}
+
+.contribution-graph-large {
+  display: grid;
+  grid-template-columns: repeat(53, 14px);
+  gap: 3px;
+}
+
+.contribution-graph-large .contribution-day {
+  width: 14px;
+  height: 14px;
+}
+
+.contribution-legend-large {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.annual-months {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-sm);
+  padding: 0 20px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.annual-weekdays {
+  position: absolute;
+  left: var(--space-lg);
+  top: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+#view-annual {
+  position: relative;
+  padding-left: 50px;
 }
