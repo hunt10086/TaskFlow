@@ -213,6 +213,7 @@ async function showTasksView(type: string) {
   elements.viewTasks.style.display = "block";
   elements.viewHistory.style.display = "none";
   elements.viewExpired.style.display = "none";
+  elements.viewAnnual.style.display = "none";
 
   // 更新标题
   const titles: Record<string, string> = {
@@ -236,6 +237,7 @@ async function showHistoryView(type: string) {
   elements.viewTasks.style.display = "none";
   elements.viewHistory.style.display = "block";
   elements.viewExpired.style.display = "none";
+  elements.viewAnnual.style.display = "none";
 
   // 更新标题
   const titles: Record<string, string> = {
@@ -260,6 +262,7 @@ async function showExpiredView() {
   elements.viewTasks.style.display = "none";
   elements.viewHistory.style.display = "none";
   elements.viewExpired.style.display = "block";
+  elements.viewAnnual.style.display = "none";
 
   // 更新标题
   elements.pageTitle.textContent = "过期任务";
