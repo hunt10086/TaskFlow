@@ -1,3 +1,6 @@
+
+<img width="2559" height="1439" alt="Screenshot 2026-02-23 224734" src="https://github.com/user-attachments/assets/b7dc4dc4-c081-42e3-a216-c20bcca336a1" />
+
 # TaskFlow 任务进度管理器
 
 TaskFlow 是一个基于 Tauri 2.0 构建的桌面任务管理应用，帮助用户管理每日、每周、每月的学习任务，支持截止日期追踪、完成历史记录和批量任务创建。
