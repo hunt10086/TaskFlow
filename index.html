@@ -75,6 +75,18 @@
         <div class="nav-divider"></div>
 
         <nav class="nav-menu">
+          <button class="nav-item" data-view="settings" data-type="all">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+            设置
+          </button>
+        </nav>
+
+        <div class="nav-divider"></div>
+
+        <nav class="nav-menu">
           <button class="nav-item" data-view="history" data-type="completed">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
@@ -150,6 +162,22 @@
         <header class="header">
           <h1 class="page-title" id="page-title">全部任务</h1>
           <div class="header-actions">
+            <button class="btn-import" id="btn-import-tasks">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              导入
+            </button>
+            <button class="btn-export" id="btn-export-tasks">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              导出
+            </button>
             <button class="btn-add btn-batch" id="btn-batch-task">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="3" width="7" height="7"/>
@@ -305,6 +333,81 @@
             <span>周五</span>
           </div>
         </div>
+
+        <!-- 设置视图 -->
+        <div class="view-container" id="view-settings" style="display: none;">
+          <div class="settings-container">
+            <div class="settings-section">
+              <h2>导入/导出模板</h2>
+              <p class="settings-desc">使用下方模板JSON格式导入任务，或复制现有任务导出为JSON格式</p>
+
+              <div class="template-card">
+                <div class="template-header">
+                  <h3>导入模板</h3>
+                  <button class="btn-copy" id="btn-copy-template">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                    </svg>
+                    复制模板
+                  </button>
+                </div>
+                <pre class="template-code" id="import-template"></pre>
+              </div>
+
+              <div class="template-card">
+                <div class="template-header">
+                  <h3>导出示例</h3>
+                  <button class="btn-copy" id="btn-copy-export">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                    </svg>
+                    复制示例
+                  </button>
+                </div>
+                <pre class="template-code" id="export-example"></pre>
+              </div>
+
+              <div class="settings-actions">
+                <button class="btn-import-template" id="btn-import-from-template">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  使用模板导入
+                </button>
+                <button class="btn-export-template" id="btn-export-current">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  导出当前任务
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h2>JSON 格式说明</h2>
+              <div class="format-help">
+                <div class="format-item">
+                  <code>title</code>
+                  <span>任务标题（必填）</span>
+                </div>
+                <div class="format-item">
+                  <code>task_type</code>
+                  <span>任务类型：daily(每日) / weekly(每周) / monthly(每月) / yearly(每年)</span>
+                </div>
+                <div class="format-item">
+                  <code>due_date</code>
+                  <span>截止日期（可选），格式：YYYY-MM-DD HH:MM:SS</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
 
@@ -414,6 +517,40 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- 任务点弹窗 -->
+    <div class="modal" id="modal-task-points">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content modal-task-points">
+        <div class="modal-header">
+          <h2 id="task-points-title">任务点</h2>
+          <button class="modal-close" id="modal-task-points-close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="task-points-stats" id="task-points-stats">
+          <span class="points-completed">已完成: <span id="points-completed-count">0</span></span>
+          <span class="points-pending">待完成: <span id="points-pending-count">0</span></span>
+        </div>
+        <form class="modal-form" id="form-add-task-point">
+          <div class="form-group form-group-inline">
+            <input type="text" id="task-point-title" placeholder="添加新的任务点...">
+            <button type="submit" class="btn-submit btn-add-point">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+          </div>
+        </form>
+        <div class="task-points-list" id="task-points-list">
+          <!-- 任务点列表将在这里动态渲染 -->
+        </div>
       </div>
     </div>
   </body>

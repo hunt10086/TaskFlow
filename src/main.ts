@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 
 // 类型定义
 interface Task {
@@ -50,8 +52,14 @@ interface ContributionDay {
   count: number;
 }
 
+interface TaskPointStats {
+  total: number;
+  completed: number;
+  pending: number;
+}
+
 // 状态
-let currentView: "tasks" | "history" | "expired" | "annual" = "tasks";
+let currentView: "tasks" | "history" | "expired" | "annual" | "settings" = "tasks";
 let currentTaskType: string = "all";
 let historyType: "completed" | "uncompleted" = "completed";
 
@@ -59,6 +67,9 @@ let historyType: "completed" | "uncompleted" = "completed";
 let currentPage: number = 1;
 const PAGE_SIZE: number = 20;
 let totalPages: number = 1;
+
+// 当前任务点相关的任务ID
+let currentTaskIdForPoints: number | null = null;
 
 // DOM 元素
 const elements = {
@@ -120,6 +131,30 @@ const elements = {
 
   // 贡献热力图
   contributionGraph: document.getElementById("contribution-graph") as HTMLDivElement,
+
+  // 导入导出按钮
+  btnImportTasks: document.getElementById("btn-import-tasks") as HTMLButtonElement,
+  btnExportTasks: document.getElementById("btn-export-tasks") as HTMLButtonElement,
+
+  // 设置页面元素
+  viewSettings: document.getElementById("view-settings") as HTMLDivElement,
+  importTemplate: document.getElementById("import-template") as HTMLPreElement,
+  exportExample: document.getElementById("export-example") as HTMLPreElement,
+  btnCopyTemplate: document.getElementById("btn-copy-template") as HTMLButtonElement,
+  btnCopyExport: document.getElementById("btn-copy-export") as HTMLButtonElement,
+  btnImportFromTemplate: document.getElementById("btn-import-from-template") as HTMLButtonElement,
+  btnExportCurrent: document.getElementById("btn-export-current") as HTMLButtonElement,
+
+  // 任务点弹窗
+  modalTaskPoints: document.getElementById("modal-task-points") as HTMLDivElement,
+  modalTaskPointsClose: document.getElementById("modal-task-points-close") as HTMLButtonElement,
+  taskPointsTitle: document.getElementById("task-points-title") as HTMLHeadingElement,
+  taskPointsStats: document.getElementById("task-points-stats") as HTMLDivElement,
+  pointsCompletedCount: document.getElementById("points-completed-count") as HTMLSpanElement,
+  pointsPendingCount: document.getElementById("points-pending-count") as HTMLSpanElement,
+  formAddTaskPoint: document.getElementById("form-add-task-point") as HTMLFormElement,
+  taskPointTitle: document.getElementById("task-point-title") as HTMLInputElement,
+  taskPointsList: document.getElementById("task-points-list") as HTMLDivElement,
 };
 
 // 初始化
@@ -136,7 +171,7 @@ function setupEventListeners() {
   // 导航点击
   elements.navItems.forEach((item) => {
     item.addEventListener("click", () => {
-      const view = item.dataset.view as "tasks" | "history" | "expired" | "annual";
+      const view = item.dataset.view as "tasks" | "history" | "expired" | "annual" | "settings";
       const type = item.dataset.type as string;
 
       elements.navItems.forEach((nav) => nav.classList.remove("active"));
@@ -152,6 +187,9 @@ function setupEventListeners() {
       } else if (view === "annual") {
         currentView = "annual";
         showAnnualView();
+      } else if (view === "settings") {
+        currentView = "settings";
+        showSettingsView();
       } else {
         currentView = "history";
         historyType = type as "completed" | "uncompleted";
@@ -206,6 +244,61 @@ function setupEventListeners() {
       annualNavItem.dispatchEvent(new Event("click"));
     }
   });
+
+  // 导入任务按钮
+  elements.btnImportTasks.addEventListener("click", importTasks);
+
+  // 导出任务按钮
+  elements.btnExportTasks.addEventListener("click", exportTasks);
+
+  // 设置页面按钮
+  elements.btnCopyTemplate.addEventListener("click", async () => {
+    const success = await copyToClipboard(elements.importTemplate.textContent || "");
+    if (success) {
+      elements.btnCopyTemplate.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> 已复制`;
+      setTimeout(() => {
+        elements.btnCopyTemplate.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> 复制模板`;
+      }, 2000);
+    }
+  });
+
+  elements.btnCopyExport.addEventListener("click", async () => {
+    const success = await copyToClipboard(elements.exportExample.textContent || "");
+    if (success) {
+      elements.btnCopyExport.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> 已复制`;
+      setTimeout(() => {
+        elements.btnCopyExport.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> 复制示例`;
+      }, 2000);
+    }
+  });
+
+  elements.btnImportFromTemplate.addEventListener("click", async () => {
+    const templateText = elements.importTemplate.textContent;
+    try {
+      await invoke("import_tasks_from_json", { jsonContent: templateText });
+      await loadTasks();
+      await loadStats();
+      await loadExpiredTasks();
+      alert("模板任务导入成功！");
+    } catch (error) {
+      console.error("导入失败:", error);
+      alert("导入失败: " + error);
+    }
+  });
+
+  elements.btnExportCurrent.addEventListener("click", async () => {
+    await exportTasks();
+  });
+
+  // 关闭任务点弹窗
+  elements.modalTaskPointsClose.addEventListener("click", closeTaskPointsModal);
+  elements.modalTaskPoints.querySelector(".modal-backdrop")?.addEventListener("click", closeTaskPointsModal);
+
+  // 添加任务点
+  elements.formAddTaskPoint.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await createTaskPoint();
+  });
 }
 
 // 显示任务视图
@@ -214,6 +307,7 @@ async function showTasksView(type: string) {
   elements.viewHistory.style.display = "none";
   elements.viewExpired.style.display = "none";
   elements.viewAnnual.style.display = "none";
+  elements.viewSettings.style.display = "none";
 
   // 更新标题
   const titles: Record<string, string> = {
@@ -238,6 +332,7 @@ async function showHistoryView(type: string) {
   elements.viewHistory.style.display = "block";
   elements.viewExpired.style.display = "none";
   elements.viewAnnual.style.display = "none";
+  elements.viewSettings.style.display = "none";
 
   // 更新标题
   const titles: Record<string, string> = {
@@ -263,6 +358,7 @@ async function showExpiredView() {
   elements.viewHistory.style.display = "none";
   elements.viewExpired.style.display = "block";
   elements.viewAnnual.style.display = "none";
+  elements.viewSettings.style.display = "none";
 
   // 更新标题
   elements.pageTitle.textContent = "过期任务";
@@ -283,6 +379,7 @@ async function showAnnualView() {
   elements.viewHistory.style.display = "none";
   elements.viewExpired.style.display = "none";
   elements.viewAnnual.style.display = "block";
+  elements.viewSettings.style.display = "none";
 
   // 隐藏新建任务按钮
   elements.btnAddTask.style.display = "none";
@@ -500,6 +597,16 @@ function renderExpiredTasks(tasks: Task[]) {
         </div>
       </div>
       <div class="task-actions">
+        <button class="btn-action btn-task-points" onclick="openTaskPointsModal(${task.id}, '${escapeHtml(task.title)}')" title="任务点">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+        </button>
         <button class="btn-action btn-delete" onclick="deleteTask(${task.id})" title="删除">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
@@ -541,11 +648,21 @@ function renderTasks(tasks: Task[]) {
         </div>
       </div>
       <div class="task-actions">
+        <button class="btn-action btn-task-points" onclick="openTaskPointsModal(${task.id}, '${escapeHtml(task.title)}')" title="任务点">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+        </button>
         <button class="btn-action btn-delete" onclick="deleteTask(${task.id})" title="删除">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-            <line x1="10" y1="11" x2="10" y2="17"/>
+<line x1="10" y1="11" x2="10" y2="17"/>
             <line x1="14" y1="11" x2="14" y2="17"/>
           </svg>
         </button>
@@ -740,6 +857,238 @@ async function deleteTask(id: number) {
   }
 }
 
+// 导入任务
+async function importTasks() {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{
+        name: "JSON",
+        extensions: ["json"]
+      }]
+    });
+
+    if (selected) {
+      const content = await readTextFile(selected as string);
+      await invoke("import_tasks_from_json", { jsonContent: content });
+      await loadTasks();
+      await loadStats();
+      await loadExpiredTasks();
+      alert("任务导入成功！");
+    }
+  } catch (error) {
+    console.error("导入任务失败:", error);
+    alert("导入失败: " + error);
+  }
+}
+
+// 导出任务
+async function exportTasks() {
+  try {
+    const savePath = await save({
+      filters: [{
+        name: "JSON",
+        extensions: ["json"]
+      }],
+      defaultPath: "tasks.json"
+    });
+
+    if (savePath) {
+      const jsonContent = await invoke<string>("export_tasks_to_json", { includeCompleted: false });
+      await writeTextFile(savePath, jsonContent);
+      alert("任务导出成功！");
+    }
+  } catch (error) {
+    console.error("导出任务失败:", error);
+    alert("导出失败: " + error);
+  }
+}
+
+// 显示设置视图
+function showSettingsView() {
+  elements.viewTasks.style.display = "none";
+  elements.viewExpired.style.display = "none";
+  elements.viewHistory.style.display = "none";
+  elements.viewAnnual.style.display = "none";
+  elements.viewSettings.style.display = "block";
+  elements.pageTitle.textContent = "设置";
+
+  // 隐藏新建任务按钮
+  elements.btnAddTask.style.display = "none";
+
+  // 渲染模板
+  renderTemplates();
+}
+
+// 渲染模板
+function renderTemplates() {
+  const importTemplateJson = {
+    tasks: [
+      {
+        title: "每日英语学习",
+        task_type: "daily",
+        due_date: "2026-03-08 23:59:59"
+      },
+      {
+        title: "每周技术总结",
+        task_type: "weekly",
+        due_date: "2026-03-15 23:59:59"
+      },
+      {
+        title: "月度项目评估",
+        task_type: "monthly",
+        due_date: "2026-04-08 23:59:59"
+      },
+      {
+        title: "年度学习计划",
+        task_type: "yearly",
+        due_date: "2027-03-08 23:59:59"
+      }
+    ]
+  };
+
+  const exportExampleJson = {
+    tasks: [
+      {
+        title: "示例任务1",
+        task_type: "daily",
+        due_date: ""
+      },
+      {
+        title: "示例任务2",
+        task_type: "weekly",
+        due_date: ""
+      }
+    ]
+  };
+
+  elements.importTemplate.textContent = JSON.stringify(importTemplateJson, null, 2);
+  elements.exportExample.textContent = JSON.stringify(exportExampleJson, null, 2);
+}
+
+// 复制到剪贴板
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (error) {
+    console.error("复制失败:", error);
+    // 备用方法
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return true;
+    } catch (e) {
+      document.body.removeChild(textarea);
+      return false;
+    }
+  }
+}
+
+// 打开任务点弹窗
+async function openTaskPointsModal(taskId: number, taskTitle: string) {
+  currentTaskIdForPoints = taskId;
+  elements.taskPointsTitle.textContent = taskTitle + " - 任务点";
+  elements.modalTaskPoints.classList.add("active");
+  await loadTaskPoints();
+}
+
+// 关闭任务点弹窗
+function closeTaskPointsModal() {
+  elements.modalTaskPoints.classList.remove("active");
+  currentTaskIdForPoints = null;
+}
+
+// 加载任务点
+async function loadTaskPoints() {
+  if (!currentTaskIdForPoints) return;
+
+  try {
+    const points = await invoke<Task[]>("get_task_points", { parentId: currentTaskIdForPoints });
+    const stats = await invoke<TaskPointStats>("get_task_point_stats", { parentId: currentTaskIdForPoints });
+
+    elements.pointsCompletedCount.textContent = stats.completed.toString();
+    elements.pointsPendingCount.textContent = stats.pending.toString();
+
+    renderTaskPoints(points);
+  } catch (error) {
+    console.error("加载任务点失败:", error);
+  }
+}
+
+// 渲染任务点列表
+function renderTaskPoints(points: Task[]) {
+  if (points.length === 0) {
+    elements.taskPointsList.innerHTML = '<div class="task-points-empty">暂无任务点，点击下方添加</div>';
+    return;
+  }
+
+  elements.taskPointsList.innerHTML = points
+    .map((point) => `
+      <div class="task-point-item ${point.completed ? "completed" : ""}" data-id="${point.id}">
+        <label class="task-point-checkbox">
+          <input type="checkbox" ${point.completed ? "checked" : ""} onchange="completeTaskPoint(${point.id})">
+          <span class="checkbox-custom"></span>
+        </label>
+        <span class="task-point-title">${escapeHtml(point.title)}</span>
+        <button class="btn-delete-point" onclick="deleteTaskPoint(${point.id})" title="删除">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+            <line x1="10" y1="11" x2="10" y2="17"/>
+            <line x1="14" y1="11" x2="14" y2="17"/>
+          </svg>
+        </button>
+      </div>
+    `)
+    .join("");
+}
+
+// 创建任务点
+async function createTaskPoint() {
+  if (!currentTaskIdForPoints) return;
+
+  const title = elements.taskPointTitle.value.trim();
+  if (!title) return;
+
+  try {
+    await invoke("create_task_point", { parentId: currentTaskIdForPoints, title });
+    elements.taskPointTitle.value = "";
+    await loadTaskPoints();
+    await loadTasks(); // 刷新任务列表以更新任务点数量
+  } catch (error) {
+    console.error("创建任务点失败:", error);
+  }
+}
+
+// 完成任务点
+async function completeTaskPoint(id: number) {
+  try {
+    await invoke("complete_task_point", { id });
+    await loadTaskPoints();
+    await loadTasks(); // 刷新任务列表
+  } catch (error) {
+    console.error("完成任务点失败:", error);
+  }
+}
+
+// 删除任务点
+async function deleteTaskPoint(id: number) {
+  try {
+    await invoke("delete_task_point", { id });
+    await loadTaskPoints();
+    await loadTasks(); // 刷新任务列表
+  } catch (error) {
+    console.error("删除任务点失败:", error);
+  }
+}
+
 // 加载统计
 async function loadStats() {
   try {
@@ -913,6 +1262,9 @@ async function goToPage(page: number) {
 (window as any).completeTask = completeTask;
 (window as any).deleteTask = deleteTask;
 (window as any).goToPage = goToPage;
+(window as any).openTaskPointsModal = openTaskPointsModal;
+(window as any).completeTaskPoint = completeTaskPoint;
+(window as any).deleteTaskPoint = deleteTaskPoint;
 
 // 启动应用
 window.addEventListener("DOMContentLoaded", init);

@@ -1,0 +1,34 @@
+{
+  "tasks": [
+    {
+      "title": "每日英语学习",
+      "task_type": "daily",
+      "due_date": "2026-03-08 23:59:59"
+    },
+    {
+      "title": "每周技术总结",
+      "task_type": "weekly",
+      "due_date": "2026-03-15 23:59:59"
+    },
+    {
+      "title": "月度项目评估",
+      "task_type": "monthly",
+      "due_date": "2026-04-08 23:59:59"
+    },
+    {
+      "title": "年度学习计划",
+      "task_type": "yearly",
+      "due_date": "2027-03-08 23:59:59"
+    },
+    {
+      "title": "学习Rust基础语法",
+      "task_type": "daily",
+      "due_date": ""
+    },
+    {
+      "title": "完成Tauri项目练习",
+      "task_type": "weekly",
+      "due_date": ""
+    }
+  ]
+}

@@ -31,6 +31,7 @@ pub struct Task {
     pub due_date: Option<String>,
     pub completed: bool,
     pub completed_at: Option<String>,
+    pub parent_id: Option<i64>, // 父任务ID，用于子任务
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +39,7 @@ pub struct NewTask {
     pub title: String,
     pub task_type: String,
     pub due_date: Option<String>,
+    pub parent_id: Option<i64>, // 父任务ID，用于创建子任务
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,10 +72,19 @@ fn init_db(conn: &Connection) -> SqliteResult<()> {
             created_at TEXT NOT NULL,
             due_date TEXT,
             completed INTEGER NOT NULL DEFAULT 0,
-            completed_at TEXT
+            completed_at TEXT,
+            parent_id INTEGER REFERENCES tasks(id)
         )",
         [],
     )?;
+
+    // 如果 parent_id 列不存在，则添加
+    let result = conn.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id)", []);
+    if let Err(e) = result {
+        // 列可能已存在，忽略错误
+        log::info!("parent_id column check: {:?}", e);
+    }
+
     Ok(())
 }
 
@@ -141,12 +152,17 @@ fn create_task(state: State<DbState>, task: NewTask) -> Result<Task, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     let created_at = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // 计算截止日期
-    let due_date = calculate_default_due_date(&task.task_type, task.due_date.as_deref());
+    // 计算截止日期（如果是子任务则使用父任务的截止日期）
+    let due_date = if task.parent_id.is_some() {
+        // 子任务继承父任务的截止日期
+        None
+    } else {
+        calculate_default_due_date(&task.task_type, task.due_date.as_deref())
+    };
 
     conn.execute(
-        "INSERT INTO tasks (title, task_type, created_at, due_date, completed) VALUES (?1, ?2, ?3, ?4, 0)",
-        params![task.title, task.task_type, created_at, due_date],
+        "INSERT INTO tasks (title, task_type, created_at, due_date, completed, parent_id) VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+        params![task.title, task.task_type, created_at, due_date, task.parent_id],
     )
     .map_err(|e| e.to_string())?;
 
@@ -160,6 +176,7 @@ fn create_task(state: State<DbState>, task: NewTask) -> Result<Task, String> {
         due_date,
         completed: false,
         completed_at: None,
+        parent_id: task.parent_id,
     })
 }
 
@@ -167,7 +184,8 @@ fn create_task(state: State<DbState>, task: NewTask) -> Result<Task, String> {
 fn get_tasks(state: State<DbState>, filter: Option<QueryFilter>) -> Result<Vec<Task>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
 
-    let mut sql = "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks WHERE 1=1".to_string();
+    // 默认过滤掉子任务，只显示主任务
+    let mut sql = "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks WHERE (parent_id IS NULL OR parent_id = 0)".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(f) = &filter {
@@ -214,6 +232,7 @@ fn get_tasks(state: State<DbState>, filter: Option<QueryFilter>) -> Result<Vec<T
                 due_date: row.get(4)?,
                 completed: row.get::<_, i32>(5)? == 1,
                 completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -236,7 +255,7 @@ fn complete_task(state: State<DbState>, id: i64) -> Result<Task, String> {
 
     // 获取更新后的任务
     let mut stmt = conn
-        .prepare("SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks WHERE id = ?1")
+        .prepare("SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks WHERE id = ?1")
         .map_err(|e| e.to_string())?;
 
     let task = stmt
@@ -249,6 +268,7 @@ fn complete_task(state: State<DbState>, id: i64) -> Result<Task, String> {
                 due_date: row.get(4)?,
                 completed: row.get::<_, i32>(5)? == 1,
                 completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -356,7 +376,7 @@ fn get_completed_history(
 
     // 获取分页数据
     let sql = format!(
-        "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks {} ORDER BY completed_at DESC LIMIT ? OFFSET ?",
+        "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks {} ORDER BY completed_at DESC LIMIT ? OFFSET ?",
         where_clause
     );
     // 收集原始参数的引用
@@ -375,6 +395,7 @@ fn get_completed_history(
                 due_date: row.get(4)?,
                 completed: row.get::<_, i32>(5)? == 1,
                 completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -440,7 +461,7 @@ fn get_uncompleted_history(
 
     // 获取分页数据
     let sql = format!(
-        "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
         where_clause
     );
     // 收集原始参数的引用
@@ -459,6 +480,7 @@ fn get_uncompleted_history(
                 due_date: row.get(4)?,
                 completed: row.get::<_, i32>(5)? == 1,
                 completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -484,7 +506,7 @@ fn get_expired_tasks(
     pagination: Option<PageFilter>,
 ) -> Result<PaginatedTasks, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    let today = Local::now().format("%Y-%m-%d").to_string();
+    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let page = pagination.as_ref().and_then(|p| p.page).unwrap_or(1).max(1);
     let page_size = pagination.as_ref().and_then(|p| p.page_size).unwrap_or(20).max(1).min(100);
@@ -493,7 +515,7 @@ fn get_expired_tasks(
     // 构建WHERE条件
     let mut where_clause = String::from("WHERE completed = 0 AND due_date IS NOT NULL AND due_date < ?");
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-    params_vec.push(Box::new(today.clone()));
+    params_vec.push(Box::new(now.clone()));
 
     if let Some(ref t) = task_type {
         if !t.is_empty() && t != "all" {
@@ -511,7 +533,7 @@ fn get_expired_tasks(
 
     // 获取分页数据
     let sql = format!(
-        "SELECT id, title, task_type, created_at, due_date, completed, completed_at FROM tasks {} ORDER BY due_date ASC LIMIT ? OFFSET ?",
+        "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks {} ORDER BY due_date ASC LIMIT ? OFFSET ?",
         where_clause
     );
     // 收集原始参数的引用
@@ -530,6 +552,7 @@ fn get_expired_tasks(
                 due_date: row.get(4)?,
                 completed: row.get::<_, i32>(5)? == 1,
                 completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -594,11 +617,15 @@ fn create_tasks_batch(state: State<DbState>, tasks: Vec<NewTask>) -> Result<Vec<
 
     for task in tasks {
         // 计算截止日期
-        let due_date = calculate_default_due_date(&task.task_type, task.due_date.as_deref());
+        let due_date = if task.parent_id.is_some() {
+            None
+        } else {
+            calculate_default_due_date(&task.task_type, task.due_date.as_deref())
+        };
 
         conn.execute(
-            "INSERT INTO tasks (title, task_type, created_at, due_date, completed) VALUES (?1, ?2, ?3, ?4, 0)",
-            params![task.title, task.task_type, created_at, due_date],
+            "INSERT INTO tasks (title, task_type, created_at, due_date, completed, parent_id) VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+            params![task.title, task.task_type, created_at, due_date, task.parent_id],
         )
         .map_err(|e| e.to_string())?;
 
@@ -612,10 +639,258 @@ fn create_tasks_batch(state: State<DbState>, tasks: Vec<NewTask>) -> Result<Vec<
             due_date,
             completed: false,
             completed_at: None,
+            parent_id: task.parent_id,
         });
     }
 
     Ok(result_tasks)
+}
+
+// JSON导入导出相关
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JsonTask {
+    pub title: String,
+    #[serde(rename = "task_type")]
+    pub task_type: String,
+    #[serde(rename = "due_date")]
+    pub due_date: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JsonTaskList {
+    pub tasks: Vec<JsonTask>,
+}
+
+// 从JSON导入任务
+#[tauri::command]
+fn import_tasks_from_json(state: State<DbState>, json_content: String) -> Result<Vec<Task>, String> {
+    let json_tasks: JsonTaskList = serde_json::from_str(&json_content)
+        .map_err(|e| format!("JSON解析失败: {}", e))?;
+
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let created_at = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let mut result_tasks: Vec<Task> = Vec::new();
+
+    for json_task in json_tasks.tasks {
+        let due_date = calculate_default_due_date(&json_task.task_type, json_task.due_date.as_deref());
+
+        conn.execute(
+            "INSERT INTO tasks (title, task_type, created_at, due_date, completed, parent_id) VALUES (?1, ?2, ?3, ?4, 0, NULL)",
+            params![json_task.title, json_task.task_type, created_at, due_date],
+        )
+        .map_err(|e| e.to_string())?;
+
+        let id = conn.last_insert_rowid();
+
+        result_tasks.push(Task {
+            id,
+            title: json_task.title,
+            task_type: json_task.task_type,
+            created_at: created_at.clone(),
+            due_date,
+            completed: false,
+            completed_at: None,
+            parent_id: None,
+        });
+    }
+
+    Ok(result_tasks)
+}
+
+// 导出任务到JSON
+#[tauri::command]
+fn export_tasks_to_json(state: State<DbState>, include_completed: bool) -> Result<String, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    let sql = if include_completed {
+        "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks ORDER BY created_at DESC"
+    } else {
+        "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks WHERE completed = 0 ORDER BY created_at DESC"
+    };
+
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    let tasks = stmt
+        .query_map([], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                task_type: row.get(2)?,
+                created_at: row.get(3)?,
+                due_date: row.get(4)?,
+                completed: row.get::<_, i32>(5)? == 1,
+                completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let json_tasks: Vec<JsonTask> = tasks
+        .iter()
+        .filter(|t| t.parent_id.is_none()) // 只导出主任务
+        .map(|t| JsonTask {
+            title: t.title.clone(),
+            task_type: t.task_type.clone(),
+            due_date: t.due_date.clone(),
+        })
+        .collect();
+
+    let json_task_list = JsonTaskList { tasks: json_tasks };
+    let json_str = serde_json::to_string_pretty(&json_task_list)
+        .map_err(|e| format!("JSON序列化失败: {}", e))?;
+
+    Ok(json_str)
+}
+
+// 获取任务的子任务列表
+#[tauri::command]
+fn get_task_points(state: State<DbState>, parent_id: i64) -> Result<Vec<Task>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks WHERE parent_id = ?1 ORDER BY created_at ASC")
+        .map_err(|e| e.to_string())?;
+
+    let tasks = stmt
+        .query_map(params![parent_id], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                task_type: row.get(2)?,
+                created_at: row.get(3)?,
+                due_date: row.get(4)?,
+                completed: row.get::<_, i32>(5)? == 1,
+                completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(tasks)
+}
+
+// 创建子任务（任务点）
+#[tauri::command]
+fn create_task_point(state: State<DbState>, parent_id: i64, title: String) -> Result<Task, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let created_at = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // 获取父任务的task_type
+    let parent_task_type: String = conn
+        .query_row(
+            "SELECT task_type FROM tasks WHERE id = ?1",
+            params![parent_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    // 子任务继承父任务的截止日期
+    let due_date: Option<String> = conn
+        .query_row(
+            "SELECT due_date FROM tasks WHERE id = ?1",
+            params![parent_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO tasks (title, task_type, created_at, due_date, completed, parent_id) VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+        params![title, parent_task_type, created_at, due_date, parent_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let id = conn.last_insert_rowid();
+
+    Ok(Task {
+        id,
+        title,
+        task_type: parent_task_type,
+        created_at,
+        due_date,
+        completed: false,
+        completed_at: None,
+        parent_id: Some(parent_id),
+    })
+}
+
+// 完成任务点
+#[tauri::command]
+fn complete_task_point(state: State<DbState>, id: i64) -> Result<Task, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let completed_at = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    conn.execute(
+        "UPDATE tasks SET completed = 1, completed_at = ?1 WHERE id = ?2",
+        params![completed_at, id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+
+    let task = stmt
+        .query_row(params![id], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                task_type: row.get(2)?,
+                created_at: row.get(3)?,
+                due_date: row.get(4)?,
+                completed: row.get::<_, i32>(5)? == 1,
+                completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(task)
+}
+
+// 删除任务点
+#[tauri::command]
+fn delete_task_point(state: State<DbState>, id: i64) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+// 获取任务点统计
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskPointStats {
+    pub total: i64,
+    pub completed: i64,
+    pub pending: i64,
+}
+
+// 获取任务点的完成统计
+#[tauri::command]
+fn get_task_point_stats(state: State<DbState>, parent_id: i64) -> Result<TaskPointStats, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    let (total, completed): (i64, Option<i64>) = conn
+        .query_row(
+            "SELECT COUNT(*), SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) FROM tasks WHERE parent_id = ?1",
+            params![parent_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let completed = completed.unwrap_or(0);
+    let pending = total - completed;
+
+    Ok(TaskPointStats {
+        total,
+        completed,
+        pending,
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -654,6 +929,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(DbState(Mutex::new(conn)))
         .invoke_handler(tauri::generate_handler![
             create_task,
@@ -666,6 +943,13 @@ pub fn run() {
             get_expired_tasks,
             create_tasks_batch,
             get_contribution_data,
+            import_tasks_from_json,
+            export_tasks_to_json,
+            get_task_points,
+            create_task_point,
+            complete_task_point,
+            delete_task_point,
+            get_task_point_stats,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用时出错");

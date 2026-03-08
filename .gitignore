@@ -31,6 +31,10 @@ Cargo.lock
 # Build outputs
 TaskFlow.exe
 *.exe
+*.msi
+*.zip
+TaskFlow_*.msi
+TaskFlow_*.zip
 
 # Claude
 .claude/
