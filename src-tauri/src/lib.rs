@@ -127,16 +127,19 @@ fn calculate_default_due_date(task_type: &str, custom_due_date: Option<&str>) ->
             format!("{} 23:59:59", now.format("%Y-%m-%d"))
         }
         "weekly" => {
-            // 每周任务：7天后 23:59:59
-            format!("{} 23:59:59", (now + chrono::Duration::days(7)).format("%Y-%m-%d"))
+            // 每周任务：下周当天 23:59:59
+            let next_week = now + chrono::Duration::days(7);
+            format!("{} 23:59:59", next_week.format("%Y-%m-%d"))
         }
         "monthly" => {
             // 每月任务：30天后 23:59:59
-            format!("{} 23:59:59", (now + chrono::Duration::days(30)).format("%Y-%m-%d"))
+            let next_month = now + chrono::Duration::days(30);
+            format!("{} 23:59:59", next_month.format("%Y-%m-%d"))
         }
         "yearly" => {
-            // 每年任务：365天后 23:59:59
-            format!("{} 23:59:59", (now + chrono::Duration::days(365)).format("%Y-%m-%d"))
+            // 每年任务：当年12月31日 23:59:59
+            let year = now.format("%Y");
+            format!("{}-12-31 23:59:59", year)
         }
         _ => {
             // 默认：7天后 23:59:59
@@ -654,6 +657,8 @@ pub struct JsonTask {
     pub task_type: String,
     #[serde(rename = "due_date")]
     pub due_date: Option<String>,
+    #[serde(rename = "created_at", default)]
+    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -734,6 +739,56 @@ fn export_tasks_to_json(state: State<DbState>, include_completed: bool) -> Resul
             title: t.title.clone(),
             task_type: t.task_type.clone(),
             due_date: t.due_date.clone(),
+            created_at: Some(t.created_at.clone()),
+        })
+        .collect();
+
+    let json_task_list = JsonTaskList { tasks: json_tasks };
+    let json_str = serde_json::to_string_pretty(&json_task_list)
+        .map_err(|e| format!("JSON序列化失败: {}", e))?;
+
+    Ok(json_str)
+}
+
+// 导出提交记录到JSON（已完成历史 + 过期记录）
+#[tauri::command]
+fn export_history_to_json(state: State<DbState>) -> Result<String, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // 获取已完成的任务和已过期的任务（不包含当前未完成且未过期的任务）
+    let sql = "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id
+               FROM tasks
+               WHERE (completed = 1)
+               OR (completed = 0 AND due_date IS NOT NULL AND due_date < ?)
+               ORDER BY created_at DESC";
+
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    let tasks = stmt
+        .query_map(params![now], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                task_type: row.get(2)?,
+                created_at: row.get(3)?,
+                due_date: row.get(4)?,
+                completed: row.get::<_, i32>(5)? == 1,
+                completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let json_tasks: Vec<JsonTask> = tasks
+        .iter()
+        .filter(|t| t.parent_id.is_none()) // 只导出主任务
+        .map(|t| JsonTask {
+            title: t.title.clone(),
+            task_type: t.task_type.clone(),
+            due_date: t.due_date.clone(),
+            created_at: Some(t.created_at.clone()),
         })
         .collect();
 
@@ -945,6 +1000,7 @@ pub fn run() {
             get_contribution_data,
             import_tasks_from_json,
             export_tasks_to_json,
+            export_history_to_json,
             get_task_points,
             create_task_point,
             complete_task_point,

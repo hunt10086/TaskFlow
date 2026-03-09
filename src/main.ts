@@ -135,6 +135,8 @@ const elements = {
   // 导入导出按钮
   btnImportTasks: document.getElementById("btn-import-tasks") as HTMLButtonElement,
   btnExportTasks: document.getElementById("btn-export-tasks") as HTMLButtonElement,
+  btnExportCurrent: document.getElementById("btn-export-current") as HTMLButtonElement,
+  btnExportHistory: document.getElementById("btn-export-history") as HTMLButtonElement,
 
   // 设置页面元素
   viewSettings: document.getElementById("view-settings") as HTMLDivElement,
@@ -143,7 +145,7 @@ const elements = {
   btnCopyTemplate: document.getElementById("btn-copy-template") as HTMLButtonElement,
   btnCopyExport: document.getElementById("btn-copy-export") as HTMLButtonElement,
   btnImportFromTemplate: document.getElementById("btn-import-from-template") as HTMLButtonElement,
-  btnExportCurrent: document.getElementById("btn-export-current") as HTMLButtonElement,
+  btnExportCurrentSettings: document.getElementById("btn-export-current-settings") as HTMLButtonElement,
 
   // 任务点弹窗
   modalTaskPoints: document.getElementById("modal-task-points") as HTMLDivElement,
@@ -155,7 +157,17 @@ const elements = {
   formAddTaskPoint: document.getElementById("form-add-task-point") as HTMLFormElement,
   taskPointTitle: document.getElementById("task-point-title") as HTMLInputElement,
   taskPointsList: document.getElementById("task-points-list") as HTMLDivElement,
+
+  // 删除确认弹窗
+  modalDeleteConfirm: document.getElementById("modal-delete-confirm") as HTMLDivElement,
+  modalDeleteClose: document.getElementById("modal-delete-close") as HTMLButtonElement,
+  btnDeleteCancel: document.getElementById("btn-delete-cancel") as HTMLButtonElement,
+  btnDeleteConfirm: document.getElementById("btn-delete-confirm") as HTMLButtonElement,
+  deleteMessage: document.getElementById("delete-message") as HTMLParagraphElement,
 };
+
+// 待删除的任务ID
+let pendingDeleteId: number | null = null;
 
 // 初始化
 async function init() {
@@ -250,6 +262,8 @@ function setupEventListeners() {
 
   // 导出任务按钮
   elements.btnExportTasks.addEventListener("click", exportTasks);
+  elements.btnExportCurrent.addEventListener("click", exportCurrentTasks);
+  elements.btnExportHistory.addEventListener("click", exportHistoryRecords);
 
   // 设置页面按钮
   elements.btnCopyTemplate.addEventListener("click", async () => {
@@ -286,13 +300,19 @@ function setupEventListeners() {
     }
   });
 
-  elements.btnExportCurrent.addEventListener("click", async () => {
+  elements.btnExportCurrentSettings.addEventListener("click", async () => {
     await exportTasks();
   });
 
   // 关闭任务点弹窗
   elements.modalTaskPointsClose.addEventListener("click", closeTaskPointsModal);
   elements.modalTaskPoints.querySelector(".modal-backdrop")?.addEventListener("click", closeTaskPointsModal);
+
+  // 删除确认弹窗事件
+  elements.modalDeleteClose.addEventListener("click", closeDeleteModal);
+  elements.btnDeleteCancel.addEventListener("click", closeDeleteModal);
+  elements.modalDeleteConfirm.querySelector(".modal-backdrop")?.addEventListener("click", closeDeleteModal);
+  elements.btnDeleteConfirm.addEventListener("click", confirmDelete);
 
   // 添加任务点
   elements.formAddTaskPoint.addEventListener("submit", async (e) => {
@@ -315,6 +335,7 @@ async function showTasksView(type: string) {
     daily: "每日任务",
     weekly: "每周任务",
     monthly: "每月任务",
+    yearly: "每年任务",
   };
   elements.pageTitle.textContent = titles[type] || "全部任务";
 
@@ -538,7 +559,20 @@ async function loadTasks() {
     };
 
     const tasks = await invoke<Task[]>("get_tasks", { filter });
-    renderTasks(tasks);
+
+    // 为每个任务获取任务点统计
+    const tasksWithPoints = await Promise.all(
+      tasks.map(async (task) => {
+        try {
+          const stats = await invoke<TaskPointStats>("get_task_point_stats", { parentId: task.id });
+          return { ...task, pointsStats: stats };
+        } catch {
+          return { ...task, pointsStats: null };
+        }
+      })
+    );
+
+    renderTasks(tasksWithPoints);
   } catch (error) {
     console.error("加载任务失败:", error);
   }
@@ -552,7 +586,20 @@ async function loadExpiredTasks() {
       taskType: currentTaskType !== "all" ? currentTaskType : null,
       pagination,
     });
-    renderExpiredTasks(result.tasks);
+
+    // 为每个任务获取任务点统计
+    const tasksWithPoints = await Promise.all(
+      result.tasks.map(async (task) => {
+        try {
+          const stats = await invoke<TaskPointStats>("get_task_point_stats", { parentId: task.id });
+          return { ...task, pointsStats: stats };
+        } catch {
+          return { ...task, pointsStats: null };
+        }
+      })
+    );
+
+    renderExpiredTasks(tasksWithPoints);
     updateExpiredCount(result.total);
     totalPages = result.total_pages;
     renderPagination(elements.expiredPagination);
@@ -572,7 +619,7 @@ function updateExpiredCount(count: number) {
 }
 
 // 渲染过期任务列表
-function renderExpiredTasks(tasks: Task[]) {
+function renderExpiredTasks(tasks: (Task & { pointsStats?: TaskPointStats | null })[]) {
   if (tasks.length === 0) {
     elements.expiredList.innerHTML = "";
     elements.emptyExpired.style.display = "flex";
@@ -594,6 +641,7 @@ function renderExpiredTasks(tasks: Task[]) {
           <span class="task-type-badge ${task.task_type}">${getTypeName(task.task_type)}</span>
           <span>创建于 ${formatDate(task.created_at)}</span>
           ${task.due_date ? `<span class="due-date-expired">已过期: ${formatDate(task.due_date)}</span>` : ""}
+          ${task.pointsStats && task.pointsStats.total > 0 ? `<span class="task-points-count" onclick="openTaskPointsModal(${task.id}, '${escapeHtml(task.title)}')" title="点击查看任务点">${task.pointsStats.completed}/${task.pointsStats.total}</span>` : ""}
         </div>
       </div>
       <div class="task-actions">
@@ -623,7 +671,7 @@ function renderExpiredTasks(tasks: Task[]) {
 }
 
 // 渲染任务列表
-function renderTasks(tasks: Task[]) {
+function renderTasks(tasks: (Task & { pointsStats?: TaskPointStats | null })[]) {
   if (tasks.length === 0) {
     elements.taskList.innerHTML = "";
     elements.emptyTasks.style.display = "flex";
@@ -645,6 +693,7 @@ function renderTasks(tasks: Task[]) {
           <span class="task-type-badge ${task.task_type}">${getTypeName(task.task_type)}</span>
           <span>创建于 ${formatDate(task.created_at)}</span>
           ${task.due_date ? `<span>截止 ${formatDate(task.due_date)}</span>` : ""}
+          ${task.pointsStats && task.pointsStats.total > 0 ? `<span class="task-points-count" onclick="openTaskPointsModal(${task.id}, '${escapeHtml(task.title)}')" title="点击查看任务点">${task.pointsStats.completed}/${task.pointsStats.total}</span>` : ""}
         </div>
       </div>
       <div class="task-actions">
@@ -693,7 +742,19 @@ async function loadHistory() {
       result = await invoke<PaginatedTasks>("get_uncompleted_history", { filter, pagination });
     }
 
-    renderHistory(result.tasks);
+    // 为每个任务获取任务点统计
+    const tasksWithPoints = await Promise.all(
+      result.tasks.map(async (task) => {
+        try {
+          const stats = await invoke<TaskPointStats>("get_task_point_stats", { parentId: task.id });
+          return { ...task, pointsStats: stats };
+        } catch {
+          return { ...task, pointsStats: null };
+        }
+      })
+    );
+
+    renderHistory(tasksWithPoints);
     totalPages = result.total_pages;
     renderPagination(elements.historyPagination);
   } catch (error) {
@@ -702,7 +763,7 @@ async function loadHistory() {
 }
 
 // 渲染历史记录 - GitHub 风格
-function renderHistory(tasks: Task[]) {
+function renderHistory(tasks: (Task & { pointsStats?: TaskPointStats | null })[]) {
   if (tasks.length === 0) {
     elements.historyList.innerHTML = "";
     elements.emptyHistory.style.display = "flex";
@@ -726,8 +787,20 @@ function renderHistory(tasks: Task[]) {
             <span class="task-type-badge ${task.task_type}">${getTypeName(task.task_type)}</span>
             <span class="commit-hash">${generateShortHash(task.id)}</span>
             <span>创建于 ${formatDate(task.created_at)}</span>
+            ${task.pointsStats && task.pointsStats.total > 0 ? `<span class="task-points-count" onclick="toggleHistoryTaskPoints(${task.id}, '${escapeHtml(task.title)}')" title="点击查看任务点">${task.pointsStats.completed}/${task.pointsStats.total}</span>` : ""}
           </div>
+          <div class="history-task-points" id="history-points-${task.id}" style="display: none;"></div>
           <div class="task-actions" style="margin-top: 8px;">
+            ${task.pointsStats && task.pointsStats.total > 0 ? `<button class="btn-action btn-task-points" onclick="toggleHistoryTaskPoints(${task.id}, '${escapeHtml(task.title)}')" title="查看任务点">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="6" x2="21" y2="6"/>
+                <line x1="8" y1="12" x2="21" y2="12"/>
+                <line x1="8" y1="18" x2="21" y2="18"/>
+                <line x1="3" y1="6" x2="3.01" y2="6"/>
+                <line x1="3" y1="12" x2="3.01" y2="12"/>
+                <line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+            </button>` : ""}
             <button class="btn-action btn-delete" onclick="deleteTask(${task.id})" title="删除">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
@@ -743,6 +816,40 @@ function renderHistory(tasks: Task[]) {
         .join("")}
     </div>
   `;
+}
+
+// 切换历史记录中的任务点显示
+async function toggleHistoryTaskPoints(taskId: number, _taskTitle: string) {
+  const container = document.getElementById(`history-points-${taskId}`);
+  if (!container) return;
+
+  if (container.style.display === "none") {
+    // 加载并显示任务点
+    try {
+      const points = await invoke<Task[]>("get_task_points", { parentId: taskId });
+
+      if (points.length === 0) {
+        container.innerHTML = '<div class="history-points-empty">暂无任务点</div>';
+      } else {
+        container.innerHTML = `
+          <div class="history-points-list">
+            ${points.map(point => `
+              <div class="history-point-item ${point.completed ? "completed" : ""}">
+                <span class="history-point-checkbox">${point.completed ? "✓" : "○"}</span>
+                <span class="history-point-title">${escapeHtml(point.title)}</span>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      container.style.display = "block";
+    } catch (error) {
+      console.error("加载任务点失败:", error);
+    }
+  } else {
+    container.style.display = "none";
+  }
 }
 
 // 生成短哈希（用于模拟 Git commit hash）
@@ -835,8 +942,26 @@ async function completeTask(id: number) {
   }
 }
 
-// 删除任务
+// 删除任务 - 显示确认弹窗
 async function deleteTask(id: number) {
+  pendingDeleteId = id;
+  elements.deleteMessage.textContent = "确定要删除这个任务吗？此操作无法撤销。";
+  elements.modalDeleteConfirm.classList.add("active");
+}
+
+// 关闭删除确认弹窗
+function closeDeleteModal() {
+  elements.modalDeleteConfirm.classList.remove("active");
+  pendingDeleteId = null;
+}
+
+// 确认删除
+async function confirmDelete() {
+  if (pendingDeleteId === null) return;
+
+  const id = pendingDeleteId;
+  closeDeleteModal();
+
   try {
     await invoke("delete_task", { id });
     await loadTasks();
@@ -884,22 +1009,50 @@ async function importTasks() {
 
 // 导出任务
 async function exportTasks() {
+  // 默认导出当前任务（保持兼容性）
+  await exportCurrentTasks();
+}
+
+// 导出当前任务（未完成的任务）
+async function exportCurrentTasks() {
   try {
     const savePath = await save({
       filters: [{
         name: "JSON",
         extensions: ["json"]
       }],
-      defaultPath: "tasks.json"
+      defaultPath: "tasks_current.json"
     });
 
     if (savePath) {
       const jsonContent = await invoke<string>("export_tasks_to_json", { includeCompleted: false });
       await writeTextFile(savePath, jsonContent);
-      alert("任务导出成功！");
+      alert("当前任务导出成功！");
     }
   } catch (error) {
     console.error("导出任务失败:", error);
+    alert("导出失败: " + error);
+  }
+}
+
+// 导出提交记录（已完成历史 + 过期记录）
+async function exportHistoryRecords() {
+  try {
+    const savePath = await save({
+      filters: [{
+        name: "JSON",
+        extensions: ["json"]
+      }],
+      defaultPath: "tasks_history.json"
+    });
+
+    if (savePath) {
+      const jsonContent = await invoke<string>("export_history_to_json");
+      await writeTextFile(savePath, jsonContent);
+      alert("提交记录导出成功！");
+    }
+  } catch (error) {
+    console.error("导出提交记录失败:", error);
     alert("导出失败: " + error);
   }
 }
@@ -1171,6 +1324,7 @@ function getTypeName(type: string): string {
     daily: "每日",
     weekly: "每周",
     monthly: "每月",
+    yearly: "每年",
   };
   return names[type] || type;
 }
@@ -1265,6 +1419,7 @@ async function goToPage(page: number) {
 (window as any).openTaskPointsModal = openTaskPointsModal;
 (window as any).completeTaskPoint = completeTaskPoint;
 (window as any).deleteTaskPoint = deleteTaskPoint;
+(window as any).toggleHistoryTaskPoints = toggleHistoryTaskPoints;
 
 // 启动应用
 window.addEventListener("DOMContentLoaded", init);

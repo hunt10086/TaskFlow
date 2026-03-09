@@ -16,6 +16,9 @@
   --accent-complete: #9BC7B3;
   --accent-pending: #E8A87C;
 
+  /* 通用强调色 */
+  --accent-color: #7CB9A8;
+
   /* 交互颜色 */
   --color-primary: #5D8A7E;
   --color-primary-hover: #4A7268;
@@ -451,6 +454,28 @@ body {
   color: #C4846E;
 }
 
+.task-type-badge.yearly {
+  background: rgba(186, 156, 214, 0.2);
+  color: #9B7BC4;
+}
+
+.task-points-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: rgba(124, 185, 168, 0.15);
+  color: var(--accent-daily);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.task-points-count:hover {
+  background: rgba(124, 185, 168, 0.25);
+}
+
 .task-actions {
   display: flex;
   gap: var(--space-sm);
@@ -755,6 +780,11 @@ body {
   color: #C4846E;
 }
 
+.type-badge.yearly {
+  background: rgba(186, 156, 214, 0.1);
+  color: #9B7BC4;
+}
+
 .type-option input:checked + .type-badge {
   border-color: currentColor;
 }
@@ -769,6 +799,10 @@ body {
 
 .type-option input:checked + .type-badge.monthly {
   background: rgba(232, 180, 160, 0.2);
+}
+
+.type-option input:checked + .type-badge.yearly {
+  background: rgba(186, 156, 214, 0.2);
 }
 
 /* 表单操作 */
@@ -928,6 +962,68 @@ body {
 .btn-export:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
+}
+
+/* 导出下拉菜单 */
+.export-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.export-dropdown .btn-export {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.export-dropdown .dropdown-arrow {
+  width: 14px;
+  height: 14px;
+  margin-left: 2px;
+}
+
+.export-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% - 2px);
+  right: 0;
+  padding-top: 4px; /* 扩大可点击区域，防止鼠标移入时菜单消失 */
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-soft);
+  min-width: 160px;
+  z-index: 100;
+  overflow: visible;
+}
+
+.export-dropdown:hover .export-menu {
+  display: block;
+}
+
+.export-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: left;
+}
+
+.export-option:hover {
+  background: var(--bg-primary);
+  color: var(--color-primary);
+}
+
+.export-option svg {
+  width: 16px;
+  height: 16px;
 }
 
 .btn-batch {
@@ -1138,6 +1234,47 @@ body {
   color: var(--text-muted);
 }
 
+/* 历史记录任务点 */
+.history-task-points {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+}
+
+.history-points-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.history-point-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.history-point-item.completed {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+.history-point-checkbox {
+  color: var(--accent-complete);
+  font-weight: 600;
+}
+
+.history-points-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: var(--space-md);
+}
+
 /* 提交记录空状态 */
 .commit-empty {
   text-align: center;
@@ -1162,7 +1299,7 @@ body {
 }
 
 .settings-section {
-  background: var(--card-bg);
+  background: var(--bg-secondary);
   border-radius: var(--radius-lg);
   padding: var(--space-xl);
   margin-bottom: var(--space-xl);
@@ -1411,6 +1548,59 @@ body {
   max-height: 80vh;
   display: flex;
   flex-direction: column;
+}
+
+/* 删除确认弹窗 */
+.modal-delete {
+  max-width: 400px;
+}
+
+.modal-delete .modal-body {
+  padding: var(--space-lg);
+}
+
+.delete-warning {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-md);
+}
+
+.delete-warning svg {
+  width: 48px;
+  height: 48px;
+  color: #e74c3c;
+}
+
+.delete-warning p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin: 0;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-top: 1px solid var(--border-color);
+}
+
+.btn-delete-confirm {
+  padding: var(--space-md) var(--space-xl);
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-delete-confirm:hover {
+  background: #c0392b;
 }
 
 .task-points-stats {
