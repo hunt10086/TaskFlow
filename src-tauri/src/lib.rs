@@ -43,6 +43,14 @@ pub struct NewTask {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTask {
+    pub id: i64,
+    pub title: String,
+    pub task_type: String,
+    pub due_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryFilter {
     pub task_type: Option<String>,
     pub completed: Option<bool>,
@@ -83,6 +91,13 @@ fn init_db(conn: &Connection) -> SqliteResult<()> {
     if let Err(e) = result {
         // 列可能已存在，忽略错误
         log::info!("parent_id column check: {:?}", e);
+    }
+
+    // 如果 sort_order 列不存在，则添加
+    let result_sort = conn.execute("ALTER TABLE tasks ADD COLUMN sort_order INTEGER DEFAULT 0", []);
+    if let Err(e) = result_sort {
+        // 列可能已存在，忽略错误
+        log::info!("sort_order column check: {:?}", e);
     }
 
     Ok(())
@@ -184,6 +199,55 @@ fn create_task(state: State<DbState>, task: NewTask) -> Result<Task, String> {
 }
 
 #[tauri::command]
+fn update_task(state: State<DbState>, task: UpdateTask) -> Result<Task, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE tasks SET title = ?1, task_type = ?2, due_date = ?3 WHERE id = ?4",
+        params![task.title, task.task_type, task.due_date, task.id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 获取更新后的任务
+    let mut stmt = conn
+        .prepare("SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id FROM tasks WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+
+    let task_result = stmt
+        .query_row(params![task.id], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                task_type: row.get(2)?,
+                created_at: row.get(3)?,
+                due_date: row.get(4)?,
+                completed: row.get::<_, i32>(5)? == 1,
+                completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(task_result)
+}
+
+// 更新任务排序
+#[tauri::command]
+fn update_task_order(state: State<DbState>, task_orders: Vec<(i64, i64)>) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    for (task_id, sort_order) in task_orders {
+        conn.execute(
+            "UPDATE tasks SET sort_order = ?1 WHERE id = ?2",
+            params![sort_order, task_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn get_tasks(state: State<DbState>, filter: Option<QueryFilter>) -> Result<Vec<Task>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
 
@@ -220,7 +284,7 @@ fn get_tasks(state: State<DbState>, filter: Option<QueryFilter>) -> Result<Vec<T
         }
     }
 
-    sql.push_str(" ORDER BY created_at DESC");
+    sql.push_str(" ORDER BY sort_order ASC, created_at DESC");
 
     let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
 
@@ -925,6 +989,38 @@ pub struct TaskPointStats {
     pub pending: i64,
 }
 
+
+// 备份数据库
+#[tauri::command]
+fn backup_database(state: State<DbState>, backup_path: String) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    // 获取当前数据库路径
+    let db_path = get_db_path();
+
+    // 关闭数据库连接
+    drop(conn);
+
+    // 复制数据库文件
+    std::fs::copy(&db_path, &backup_path)
+        .map_err(|e| format!("备份失败: {}", e))?;
+
+    Ok(())
+}
+
+// 恢复数据库
+#[tauri::command]
+fn restore_database(state: State<DbState>, restore_path: String) -> Result<(), String> {
+    // 获取当前数据库路径
+    let db_path = get_db_path();
+
+    // 复制备份文件到数据库路径
+    std::fs::copy(&restore_path, &db_path)
+        .map_err(|e| format!("恢复失败: {}", e))?;
+
+    Ok(())
+}
+
 // 获取任务点的完成统计
 #[tauri::command]
 fn get_task_point_stats(state: State<DbState>, parent_id: i64) -> Result<TaskPointStats, String> {
@@ -986,9 +1082,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(DbState(Mutex::new(conn)))
         .invoke_handler(tauri::generate_handler![
             create_task,
+            update_task,
+            update_task_order,
             get_tasks,
             complete_task,
             delete_task,
@@ -1006,6 +1105,8 @@ pub fn run() {
             complete_task_point,
             delete_task_point,
             get_task_point_stats,
+            backup_database,
+            restore_database,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用时出错");

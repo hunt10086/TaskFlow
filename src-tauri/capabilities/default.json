@@ -7,6 +7,10 @@
     "core:default",
     "opener:default",
     "dialog:default",
+    "notification:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
     {
       "identifier": "fs:allow-read-text-file",
       "allow": [{ "path": "**" }]

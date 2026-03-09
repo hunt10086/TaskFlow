@@ -164,6 +164,27 @@
               <span>多</span>
             </div>
           </div>
+
+          <!-- 主题切换 -->
+          <div class="theme-toggle">
+            <button class="theme-btn" id="theme-toggle-btn" title="切换主题">
+              <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/>
+                <line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+              <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+              <span class="theme-label">切换主题</span>
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -466,6 +487,30 @@
                   <span>注：导入任务时未指定截止日期将按照上述规则自动设置</span>
                 </div>
               </div>
+            </div>
+
+            <div class="settings-section">
+              <h2>数据备份与恢复</h2>
+              <p class="settings-desc">备份或恢复您的任务数据</p>
+              <div class="backup-buttons">
+                <button class="btn-primary" id="btn-backup">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  备份数据
+                </button>
+                <button class="btn-secondary" id="btn-restore">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  恢复数据
+                </button>
+              </div>
+              <p class="backup-warning">注意：恢复数据将覆盖当前所有任务，请谨慎操作</p>
             </div>
           </div>
         </div>

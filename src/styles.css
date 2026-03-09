@@ -46,6 +46,38 @@
   --transition: 0.2s ease;
 }
 
+/* 暗色模式 */
+:root.dark {
+  /* 色彩方案 - 暗色 */
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2d2d2d;
+  --bg-sidebar: #242424;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-muted: #707070;
+
+  /* 任务类型颜色 - 暗色模式 */
+  --accent-daily: #5a9a8a;
+  --accent-weekly: #7aa5c0;
+  --accent-monthly: #d4957d;
+  --accent-complete: #7ab89f;
+  --accent-pending: #d4905f;
+
+  /* 通用强调色 */
+  --accent-color: #5a9a8a;
+
+  /* 交互颜色 */
+  --color-primary: #5a9a8a;
+  --color-primary-hover: #4a8a7a;
+  --color-danger: #c45d52;
+  --color-danger-hover: #d46d62;
+
+  /* 边框与阴影 */
+  --border-color: #3d3d3d;
+  --shadow-soft: 0 2px 12px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
 /* 重置与基础 */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -514,6 +546,35 @@ body {
 .btn-delete:hover {
   color: var(--color-danger);
   background: rgba(212, 114, 106, 0.1);
+}
+
+.btn-edit {
+  color: var(--text-muted);
+}
+
+.btn-edit:hover {
+  color: var(--color-primary);
+  background: rgba(93, 138, 126, 0.1);
+}
+
+/* 拖拽排序样式 */
+.task-card {
+  cursor: grab;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-card:active {
+  cursor: grabbing;
+}
+
+.task-card.dragging {
+  opacity: 0.5;
+  transform: scale(1.02);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.task-card.drag-over {
+  border-top: 3px solid var(--color-primary);
 }
 
 /* 空状态 */
@@ -1152,6 +1213,56 @@ body {
   height: 10px;
 }
 
+/* 主题切换按钮 */
+.theme-toggle {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-color);
+}
+
+.theme-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.theme-btn:hover {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.theme-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.theme-btn .icon-moon {
+  display: none;
+}
+
+.theme-btn .theme-label {
+  font-size: 13px;
+}
+
+/* 暗色模式下显示月亮图标 */
+:root.dark .theme-btn .icon-sun {
+  display: none;
+}
+
+:root.dark .theme-btn .icon-moon {
+  display: block;
+}
+
 /* GitHub风格提交记录时间线 */
 .commit-timeline {
   position: relative;
@@ -1443,6 +1554,43 @@ body {
 .format-item span {
   color: var(--text-secondary);
   font-size: var(--font-sm);
+}
+
+/* 备份恢复按钮 */
+.backup-buttons {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.backup-warning {
+  margin-top: var(--space-md);
+  font-size: var(--font-sm);
+  color: var(--color-danger);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-primary);
+  border-color: var(--color-primary);
+}
+
+.btn-secondary svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* 年度记录视图 */

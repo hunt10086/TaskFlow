@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
 // 类型定义
 interface Task {
@@ -14,6 +15,13 @@ interface Task {
 }
 
 interface NewTask {
+  title: string;
+  task_type: string;
+  due_date: string | null;
+}
+
+interface UpdateTask {
+  id: number;
   title: string;
   task_type: string;
   due_date: string | null;
@@ -85,6 +93,9 @@ const elements = {
   emptyHistory: document.getElementById("empty-history") as HTMLDivElement,
   emptyExpired: document.getElementById("empty-expired") as HTMLDivElement,
 
+  // 主题切换
+  themeToggleBtn: document.getElementById("theme-toggle-btn") as HTMLButtonElement,
+
   // 标题
   pageTitle: document.getElementById("page-title") as HTMLHeadingElement,
 
@@ -145,6 +156,10 @@ const elements = {
   btnCopyTemplate: document.getElementById("btn-copy-template") as HTMLButtonElement,
   btnCopyExport: document.getElementById("btn-copy-export") as HTMLButtonElement,
   btnImportFromTemplate: document.getElementById("btn-import-from-template") as HTMLButtonElement,
+
+  // 备份恢复
+  btnBackup: document.getElementById("btn-backup") as HTMLButtonElement,
+  btnRestore: document.getElementById("btn-restore") as HTMLButtonElement,
   btnExportCurrentSettings: document.getElementById("btn-export-current-settings") as HTMLButtonElement,
 
   // 任务点弹窗
@@ -169,17 +184,223 @@ const elements = {
 // 待删除的任务ID
 let pendingDeleteId: number | null = null;
 
+// 拖拽排序相关
+let draggedTaskId: number | null = null;
+let dragOverTaskId: number | null = null;
+
 // 初始化
 async function init() {
+  initTheme(); // 初始化主题
   setupEventListeners();
+  setupDragAndDrop();
   await loadStats();
   await loadTasks();
   await loadExpiredTasks(); // 加载过期任务数量
   await loadContributionData(); // 加载贡献数据
+  initNotifications(); // 初始化通知
+}
+
+// 通知相关
+const notifiedTasks = new Set<string>(); // 记录已发送通知的任务
+
+async function initNotifications() {
+  try {
+    // 请求通知权限
+    let permissionGranted = await isPermissionGranted();
+    if (!permissionGranted) {
+      const permission = await requestPermission();
+      permissionGranted = permission === "granted";
+    }
+
+    if (permissionGranted) {
+      // 启动定时检查（每分钟检查一次）
+      checkDueTasks();
+      window.setInterval(checkDueTasks, 60000);
+    }
+  } catch (error) {
+    console.error("通知初始化失败:", error);
+  }
+}
+
+async function checkDueTasks() {
+  try {
+    const now = new Date();
+    const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+    const oneDayLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    // 获取所有未完成任务
+    const tasks = await invoke<Task[]>("get_tasks", { filter: { completed: false } });
+
+    for (const task of tasks) {
+      if (!task.due_date) continue;
+
+      const dueDate = new Date(task.due_date.replace(" ", "T"));
+
+      // 检查是否在 1 小时内到期
+      if (dueDate > now && dueDate <= oneHourLater) {
+        const key = `${task.id}-1h`;
+        if (!notifiedTasks.has(key)) {
+          sendNotification({
+            title: "任务提醒",
+            body: `"${task.title}" 将在 1 小时内到期！`,
+          });
+          notifiedTasks.add(key);
+        }
+      }
+
+      // 检查是否在 1 天内到期
+      if (dueDate > now && dueDate <= oneDayLater) {
+        const key = `${task.id}-1d`;
+        if (!notifiedTasks.has(key)) {
+          sendNotification({
+            title: "任务提醒",
+            body: `"${task.title}" 将在明天到期！`,
+          });
+          notifiedTasks.add(key);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("检查任务到期失败:", error);
+  }
+}
+
+// 主题初始化和切换
+function initTheme() {
+  const savedTheme = localStorage.getItem("theme");
+  if (savedTheme === "dark") {
+    document.documentElement.classList.add("dark");
+  }
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.classList.toggle("dark");
+  localStorage.setItem("theme", isDark ? "dark" : "light");
+}
+
+// 拖拽排序功能 - 使用鼠标事件
+function setupDragAndDrop() {
+  let isDragging = false;
+  let startY = 0;
+  let startX = 0;
+  let dragElement: HTMLElement | null = null;
+
+  // 使用事件委托绑定到每个任务卡片
+  elements.taskList.addEventListener("mousedown", (e) => {
+    const card = (e.target as HTMLElement).closest(".task-card") as HTMLElement;
+    if (!card) return;
+
+    // 如果点击的是checkbox或按钮，不启用拖拽
+    if ((e.target as HTMLElement).tagName === "INPUT" ||
+        (e.target as HTMLElement).tagName === "BUTTON" ||
+        (e.target as HTMLElement).closest("button")) {
+      return;
+    }
+
+    isDragging = true;
+    dragElement = card;
+    startY = e.clientY;
+    startX = e.clientX;
+    draggedTaskId = parseInt(card.dataset.id || "0");
+    card.classList.add("dragging");
+    card.style.position = "relative";
+    card.style.zIndex = "1000";
+    card.style.opacity = "0.8";
+
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isDragging || !dragElement) return;
+
+    const deltaY = Math.abs(e.clientY - startY);
+    const deltaX = Math.abs(e.clientX - startX);
+
+    // 需要移动一定距离才触发拖拽
+    if (deltaY > 10 || deltaX > 10) {
+      // 找到鼠标当前所在的卡片
+      const cards = Array.from(document.querySelectorAll(".task-card:not(.dragging)")) as HTMLElement[];
+      let targetCard: HTMLElement | null = null;
+
+      for (const card of cards) {
+        const rect = card.getBoundingClientRect();
+        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          targetCard = card;
+          break;
+        }
+      }
+
+      // 清除之前的drag-over状态
+      document.querySelectorAll(".task-card.drag-over").forEach(c => {
+        c.classList.remove("drag-over");
+      });
+
+      if (targetCard && targetCard !== dragElement) {
+        targetCard.classList.add("drag-over");
+        dragOverTaskId = parseInt(targetCard.dataset.id || "0");
+      }
+    }
+  });
+
+  document.addEventListener("mouseup", async (_e) => {
+    if (!isDragging || !dragElement) return;
+
+    dragElement.classList.remove("dragging");
+    dragElement.style.position = "";
+    dragElement.style.zIndex = "";
+    dragElement.style.opacity = "";
+
+    if (draggedTaskId !== null && dragOverTaskId !== null && draggedTaskId !== dragOverTaskId) {
+      await reorderTasks(draggedTaskId, dragOverTaskId);
+    }
+
+    // 清除drag-over状态
+    document.querySelectorAll(".task-card.drag-over").forEach(c => {
+      c.classList.remove("drag-over");
+    });
+
+    isDragging = false;
+    dragElement = null;
+    draggedTaskId = null;
+    dragOverTaskId = null;
+  });
+}
+
+// 重新排序任务
+async function reorderTasks(fromId: number, toId: number) {
+  try {
+    // 获取当前任务列表
+    const tasks = await invoke<Task[]>("get_tasks", { filter: { completed: false } });
+
+    // 找到两个任务的位置
+    const fromIndex = tasks.findIndex(t => t.id === fromId);
+    const toIndex = tasks.findIndex(t => t.id === toId);
+
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    // 复制数组并调整顺序
+    const newTasks = [...tasks];
+    const [movedTask] = newTasks.splice(fromIndex, 1);
+    newTasks.splice(toIndex, 0, movedTask);
+
+    // 构建排序数组 (task_id, sort_order)
+    const taskOrders: [number, number][] = newTasks.map((task, index) => [task.id, index]);
+
+    // 调用后端更新排序
+    await invoke("update_task_order", { taskOrders });
+
+    // 重新加载任务列表
+    await loadTasks();
+  } catch (error) {
+    console.error("排序失败:", error);
+  }
 }
 
 // 事件监听
 function setupEventListeners() {
+  // 主题切换按钮
+  elements.themeToggleBtn.addEventListener("click", toggleTheme);
+
   // 导航点击
   elements.navItems.forEach((item) => {
     item.addEventListener("click", () => {
@@ -235,7 +456,11 @@ function setupEventListeners() {
   // 提交新任务
   elements.formNewTask.addEventListener("submit", async (e) => {
     e.preventDefault();
-    await createTask();
+    if (editingTaskId !== null) {
+      await saveTaskEdit();
+    } else {
+      await createTask();
+    }
   });
 
   // 提交批量任务
@@ -297,6 +522,48 @@ function setupEventListeners() {
     } catch (error) {
       console.error("导入失败:", error);
       alert("导入失败: " + error);
+    }
+  });
+
+  // 备份数据按钮
+  elements.btnBackup.addEventListener("click", async () => {
+    const backupPath = await save({
+      defaultPath: `taskflow_backup_${new Date().toISOString().split("T")[0]}.db`,
+      filters: [{ name: "Database", extensions: ["db"] }],
+    });
+
+    if (backupPath) {
+      try {
+        await invoke("backup_database", { backupPath });
+        alert("数据备份成功！");
+      } catch (error) {
+        console.error("备份失败:", error);
+        alert("备份失败: " + error);
+      }
+    }
+  });
+
+  // 恢复数据按钮
+  elements.btnRestore.addEventListener("click", async () => {
+    const confirmRestore = confirm("恢复数据将覆盖当前所有任务，确定要继续吗？");
+    if (!confirmRestore) return;
+
+    const restorePath = await open({
+      filters: [{ name: "Database", extensions: ["db"] }],
+    });
+
+    if (restorePath) {
+      try {
+        await invoke("restore_database", { restorePath });
+        alert("数据恢复成功！请刷新页面查看数据。");
+        // 重新加载数据
+        await loadTasks();
+        await loadStats();
+        await loadExpiredTasks();
+      } catch (error) {
+        console.error("恢复失败:", error);
+        alert("恢复失败: " + error);
+      }
     }
   });
 
@@ -542,6 +809,22 @@ function renderAnnualGraph(contributions: ContributionDay[]) {
 function closeModal() {
   elements.modalNewTask.classList.remove("active");
   elements.formNewTask.reset();
+
+  // 重置编辑模式
+  if (editingTaskId !== null) {
+    editingTaskId = null;
+
+    // 恢复表单标题和按钮
+    const modalTitle = elements.modalNewTask.querySelector("h2");
+    if (modalTitle) {
+      modalTitle.textContent = "新建任务";
+    }
+
+    const submitBtn = elements.formNewTask.querySelector(".btn-submit") as HTMLButtonElement;
+    if (submitBtn) {
+      submitBtn.textContent = "创建任务";
+    }
+  }
 }
 
 // 关闭批量创建模态框
@@ -681,8 +964,8 @@ function renderTasks(tasks: (Task & { pointsStats?: TaskPointStats | null })[]) 
   elements.emptyTasks.style.display = "none";
   elements.taskList.innerHTML = tasks
     .map(
-      (task) => `
-    <div class="task-card ${task.completed ? "completed" : ""}" data-id="${task.id}">
+      (task, index) => `
+    <div class="task-card ${task.completed ? "completed" : ""}" data-id="${task.id}" data-sort="${index}" draggable="true">
       <label class="task-checkbox">
         <input type="checkbox" ${task.completed ? "checked" : ""} onchange="completeTask(${task.id})">
         <span class="checkbox-custom"></span>
@@ -697,6 +980,12 @@ function renderTasks(tasks: (Task & { pointsStats?: TaskPointStats | null })[]) 
         </div>
       </div>
       <div class="task-actions">
+        <button class="btn-action btn-edit" onclick="editTask(${task.id})" title="编辑">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
         <button class="btn-action btn-task-points" onclick="openTaskPointsModal(${task.id}, '${escapeHtml(task.title)}')" title="任务点">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="8" y1="6" x2="21" y2="6"/>
@@ -882,6 +1171,104 @@ async function createTask() {
     await loadExpiredTasks(); // 更新过期任务数量
   } catch (error) {
     console.error("创建任务失败:", error);
+  }
+}
+
+// 编辑任务
+let editingTaskId: number | null = null;
+
+async function editTask(taskId: number) {
+  try {
+    // 获取任务详情
+    const tasks = await invoke<Task[]>("get_tasks", { filter: {} });
+    const task = tasks.find(t => t.id === taskId);
+
+    if (!task) {
+      console.error("任务不存在");
+      return;
+    }
+
+    // 设置编辑模式
+    editingTaskId = taskId;
+
+    // 填充表单
+    elements.taskTitle.value = task.title;
+
+    // 设置任务类型
+    const taskTypeInput = document.querySelector('input[name="task-type"]') as HTMLInputElement;
+    if (taskTypeInput) {
+      const options = document.querySelectorAll('input[name="task-type"]');
+      options.forEach((opt) => {
+        (opt as HTMLInputElement).checked = (opt as HTMLInputElement).value === task.task_type;
+      });
+    }
+
+    // 设置截止日期
+    if (task.due_date) {
+      elements.taskDueDate.value = task.due_date.split(" ")[0];
+    } else {
+      elements.taskDueDate.value = "";
+    }
+
+    // 修改表单标题和按钮
+    const modalTitle = elements.modalNewTask.querySelector("h2");
+    if (modalTitle) {
+      modalTitle.textContent = "编辑任务";
+    }
+
+    const submitBtn = elements.formNewTask.querySelector(".btn-submit") as HTMLButtonElement;
+    if (submitBtn) {
+      submitBtn.textContent = "保存修改";
+    }
+
+    // 显示弹窗
+    elements.modalNewTask.classList.add("active");
+  } catch (error) {
+    console.error("获取任务失败:", error);
+  }
+}
+
+// 保存任务修改
+async function saveTaskEdit() {
+  if (editingTaskId === null) return;
+
+  const title = elements.taskTitle.value.trim();
+  if (!title) return;
+
+  const taskTypeInput = document.querySelector('input[name="task-type"]:checked') as HTMLInputElement;
+  const taskType = taskTypeInput?.value || "daily";
+  const dueDate = elements.taskDueDate.value || null;
+
+  try {
+    const updateTask: UpdateTask = {
+      id: editingTaskId,
+      title,
+      task_type: taskType,
+      due_date: dueDate,
+    };
+
+    await invoke("update_task", { task: updateTask });
+
+    // 重置编辑模式
+    editingTaskId = null;
+
+    // 恢复表单状态
+    const modalTitle = elements.modalNewTask.querySelector("h2");
+    if (modalTitle) {
+      modalTitle.textContent = "新建任务";
+    }
+
+    const submitBtn = elements.formNewTask.querySelector(".btn-submit") as HTMLButtonElement;
+    if (submitBtn) {
+      submitBtn.textContent = "创建任务";
+    }
+
+    closeModal();
+    await loadTasks();
+    await loadStats();
+    await loadExpiredTasks();
+  } catch (error) {
+    console.error("更新任务失败:", error);
   }
 }
 
@@ -1415,6 +1802,7 @@ async function goToPage(page: number) {
 // 全局函数（供 onclick 使用）
 (window as any).completeTask = completeTask;
 (window as any).deleteTask = deleteTask;
+(window as any).editTask = editTask;
 (window as any).goToPage = goToPage;
 (window as any).openTaskPointsModal = openTaskPointsModal;
 (window as any).completeTaskPoint = completeTaskPoint;
