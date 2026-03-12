@@ -407,8 +407,8 @@ fn get_completed_history(
     let page_size = pagination.as_ref().and_then(|p| p.page_size).unwrap_or(20).max(1).min(100);
     let offset = (page - 1) * page_size;
 
-    // 构建WHERE条件
-    let mut where_clause = String::from("WHERE completed = 1");
+    // 构建WHERE条件 - 只获取未过期完成的任务（排除过期后完成的任务）
+    let mut where_clause = String::from("WHERE completed = 1 AND (due_date IS NULL OR completed_at <= due_date)");
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(f) = &filter {
@@ -492,8 +492,8 @@ fn get_uncompleted_history(
     let page_size = pagination.as_ref().and_then(|p| p.page_size).unwrap_or(20).max(1).min(100);
     let offset = (page - 1) * page_size;
 
-    // 构建WHERE条件
-    let mut where_clause = String::from("WHERE completed = 0");
+    // 构建WHERE条件 - 获取过期后完成的任务（completed = 1 且 completed_at > due_date）
+    let mut where_clause = String::from("WHERE completed = 1 AND due_date IS NOT NULL AND completed_at > due_date");
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(f) = &filter {
@@ -730,6 +730,30 @@ pub struct JsonTaskList {
     pub tasks: Vec<JsonTask>,
 }
 
+// 导出历史记录使用的任务结构（包含完成类型标记）
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JsonHistoryTask {
+    pub title: String,
+    #[serde(rename = "task_type")]
+    pub task_type: String,
+    #[serde(rename = "due_date")]
+    pub due_date: Option<String>,
+    #[serde(rename = "created_at", default)]
+    pub created_at: Option<String>,
+    #[serde(rename = "completed_at", default)]
+    pub completed_at: Option<String>,
+    #[serde(rename = "completion_type", default)]
+    pub completion_type: String, // "normal" = 正常完成, "expired" = 过期后完成
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JsonHistoryTaskList {
+    #[serde(rename = "normal_completed")]
+    pub normal_completed: Vec<JsonHistoryTask>, // 正常完成的任务
+    #[serde(rename = "expired_completed")]
+    pub expired_completed: Vec<JsonHistoryTask>, // 过期后完成的任务（未完成历史）
+}
+
 // 从JSON导入任务
 #[tauri::command]
 fn import_tasks_from_json(state: State<DbState>, json_content: String) -> Result<Vec<Task>, String> {
@@ -814,22 +838,20 @@ fn export_tasks_to_json(state: State<DbState>, include_completed: bool) -> Resul
     Ok(json_str)
 }
 
-// 导出提交记录到JSON（已完成历史 + 过期记录）
+// 导出提交记录到JSON（区分正常完成和过期后完成）
 #[tauri::command]
 fn export_history_to_json(state: State<DbState>) -> Result<String, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // 获取已完成的任务和已过期的任务（不包含当前未完成且未过期的任务）
-    let sql = "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id
+    // 1. 获取正常完成的任务（未过期完成或在截止日期前完成）
+    let sql_normal = "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id
                FROM tasks
-               WHERE (completed = 1)
-               OR (completed = 0 AND due_date IS NOT NULL AND due_date < ?)
-               ORDER BY created_at DESC";
+               WHERE completed = 1 AND (due_date IS NULL OR completed_at <= due_date)
+               ORDER BY completed_at DESC";
 
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let tasks = stmt
-        .query_map(params![now], |row| {
+    let mut stmt_normal = conn.prepare(sql_normal).map_err(|e| e.to_string())?;
+    let normal_tasks: Vec<Task> = stmt_normal
+        .query_map([], |row| {
             Ok(Task {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -845,18 +867,61 @@ fn export_history_to_json(state: State<DbState>) -> Result<String, String> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
-    let json_tasks: Vec<JsonTask> = tasks
+    // 2. 获取过期后完成的任务（已过期但在之后完成）
+    let sql_expired = "SELECT id, title, task_type, created_at, due_date, completed, completed_at, parent_id
+               FROM tasks
+               WHERE completed = 1 AND due_date IS NOT NULL AND completed_at > due_date
+               ORDER BY completed_at DESC";
+
+    let mut stmt_expired = conn.prepare(sql_expired).map_err(|e| e.to_string())?;
+    let expired_tasks: Vec<Task> = stmt_expired
+        .query_map([], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                task_type: row.get(2)?,
+                created_at: row.get(3)?,
+                due_date: row.get(4)?,
+                completed: row.get::<_, i32>(5)? == 1,
+                completed_at: row.get(6)?,
+                parent_id: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    // 转换为JSON结构
+    let json_normal: Vec<JsonHistoryTask> = normal_tasks
         .iter()
         .filter(|t| t.parent_id.is_none()) // 只导出主任务
-        .map(|t| JsonTask {
+        .map(|t| JsonHistoryTask {
             title: t.title.clone(),
             task_type: t.task_type.clone(),
             due_date: t.due_date.clone(),
             created_at: Some(t.created_at.clone()),
+            completed_at: t.completed_at.clone(),
+            completion_type: "normal".to_string(),
         })
         .collect();
 
-    let json_task_list = JsonTaskList { tasks: json_tasks };
+    let json_expired: Vec<JsonHistoryTask> = expired_tasks
+        .iter()
+        .filter(|t| t.parent_id.is_none()) // 只导出主任务
+        .map(|t| JsonHistoryTask {
+            title: t.title.clone(),
+            task_type: t.task_type.clone(),
+            due_date: t.due_date.clone(),
+            created_at: Some(t.created_at.clone()),
+            completed_at: t.completed_at.clone(),
+            completion_type: "expired".to_string(),
+        })
+        .collect();
+
+    let json_task_list = JsonHistoryTaskList {
+        normal_completed: json_normal,
+        expired_completed: json_expired,
+    };
     let json_str = serde_json::to_string_pretty(&json_task_list)
         .map_err(|e| format!("JSON序列化失败: {}", e))?;
 

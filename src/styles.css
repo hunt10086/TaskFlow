@@ -656,6 +656,17 @@ body {
   box-shadow: 0 0 0 3px rgba(93, 138, 126, 0.1);
 }
 
+/* 日期选择器日历图标 - 黑色主题下可见 */
+.query-group input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.query-group input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 .btn-query {
   display: flex;
   align-items: center;
@@ -793,6 +804,171 @@ body {
   color: var(--text-primary);
   background: var(--bg-primary);
   transition: all var(--transition);
+}
+
+/* 日期选择器日历图标 - 黑色主题下可见 */
+.form-group input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.form-group input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* 日期时间选择器样式 */
+.datetime-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.datetime-picker select {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: all var(--transition);
+  min-width: 60px;
+}
+
+.datetime-picker select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(93, 138, 126, 0.1);
+}
+
+.datetime-separator {
+  color: var(--text-secondary);
+  font-size: 14px;
+  user-select: none;
+}
+
+/* 日期选择器行（带自定义时间开关） */
+.date-picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.date-picker-row input[type="date"] {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  min-width: 150px;
+}
+
+.date-picker-row input[type="date"]:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(93, 138, 126, 0.1);
+}
+
+/* 自定义时间开关 */
+.custom-time-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.custom-time-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+.custom-time-toggle:hover {
+  color: var(--text-primary);
+}
+
+/* 日期选择器日历图标 - 黑色主题下可见 */
+.date-picker-row input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.date-picker-row input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* 结束日期选择器 - 黑色主题下可见 */
+.query-end-date::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.query-end-date::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* 查询日期选择器样式 */
+.datetime-picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.datetime-picker-row select {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: all var(--transition);
+  min-width: 55px;
+}
+
+.datetime-picker-row select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(93, 138, 126, 0.1);
+}
+
+.datetime-picker-row .year-select {
+  min-width: 70px;
+}
+
+.datetime-picker-row .datetime-separator {
+  color: var(--text-secondary);
+  font-size: 14px;
+  user-select: none;
+}
+
+/* 移动端日期时间选择器 */
+@media (max-width: 600px) {
+  .datetime-picker {
+    gap: var(--space-xs);
+  }
+
+  .datetime-picker select {
+    min-width: 50px;
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 13px;
+  }
+
+  .datetime-separator {
+    font-size: 12px;
+  }
 }
 
 .form-group input:focus {
@@ -1308,6 +1484,20 @@ body {
 
 .commit-item.completed::before {
   background: var(--accent-complete);
+}
+
+/* 未完成历史记录（过期后完成的任务）标红 */
+.commit-item.uncompleted-history {
+  border-color: var(--color-danger);
+  background: rgba(220, 53, 69, 0.08);
+}
+
+.commit-item.uncompleted-history::before {
+  background: var(--color-danger);
+}
+
+.commit-item.uncompleted-history .commit-title {
+  color: var(--color-danger);
 }
 
 .commit-header {

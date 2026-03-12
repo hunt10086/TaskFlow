@@ -109,7 +109,14 @@ const elements = {
   btnCancel: document.getElementById("btn-cancel") as HTMLButtonElement,
   formNewTask: document.getElementById("form-new-task") as HTMLFormElement,
   taskTitle: document.getElementById("task-title") as HTMLInputElement,
-  taskDueDate: document.getElementById("task-due-date") as HTMLInputElement,
+  taskDueYear: document.getElementById("task-due-year") as HTMLSelectElement,
+  taskDueMonth: document.getElementById("task-due-month") as HTMLSelectElement,
+  taskDueDay: document.getElementById("task-due-day") as HTMLSelectElement,
+  taskDueHour: document.getElementById("task-due-hour") as HTMLSelectElement,
+  taskDueMinute: document.getElementById("task-due-minute") as HTMLSelectElement,
+  taskDueDateSimple: document.getElementById("task-due-date-simple") as HTMLInputElement,
+  taskCustomTime: document.getElementById("task-custom-time") as HTMLInputElement,
+  taskDatetimePicker: document.getElementById("task-datetime-picker") as HTMLDivElement,
 
   // 批量创建模态框
   modalBatchTask: document.getElementById("modal-batch-task") as HTMLDivElement,
@@ -118,7 +125,14 @@ const elements = {
   btnBatchCancel: document.getElementById("btn-batch-cancel") as HTMLButtonElement,
   formBatchTask: document.getElementById("form-batch-task") as HTMLFormElement,
   batchTasks: document.getElementById("batch-tasks") as HTMLTextAreaElement,
-  batchDueDate: document.getElementById("batch-due-date") as HTMLInputElement,
+  batchDueYear: document.getElementById("batch-due-year") as HTMLSelectElement,
+  batchDueMonth: document.getElementById("batch-due-month") as HTMLSelectElement,
+  batchDueDay: document.getElementById("batch-due-day") as HTMLSelectElement,
+  batchDueHour: document.getElementById("batch-due-hour") as HTMLSelectElement,
+  batchDueMinute: document.getElementById("batch-due-minute") as HTMLSelectElement,
+  batchDueDateSimple: document.getElementById("batch-due-date-simple") as HTMLInputElement,
+  batchCustomTime: document.getElementById("batch-custom-time") as HTMLInputElement,
+  batchDatetimePicker: document.getElementById("batch-datetime-picker") as HTMLDivElement,
 
   // 统计
   statTotal: document.getElementById("stat-total") as HTMLSpanElement,
@@ -132,8 +146,12 @@ const elements = {
   // 查询面板
   queryDateField: document.getElementById("query-date-field") as HTMLSelectElement,
   queryTaskType: document.getElementById("query-task-type") as HTMLSelectElement,
-  queryStartDate: document.getElementById("query-start-date") as HTMLInputElement,
-  queryEndDate: document.getElementById("query-end-date") as HTMLInputElement,
+  queryStartYear: document.getElementById("query-start-year") as HTMLSelectElement,
+  queryStartMonth: document.getElementById("query-start-month") as HTMLSelectElement,
+  queryStartDay: document.getElementById("query-start-day") as HTMLSelectElement,
+  queryEndYear: document.getElementById("query-end-year") as HTMLSelectElement,
+  queryEndMonth: document.getElementById("query-end-month") as HTMLSelectElement,
+  queryEndDay: document.getElementById("query-end-day") as HTMLSelectElement,
   btnQuery: document.getElementById("btn-query") as HTMLButtonElement,
 
   // 分页
@@ -191,6 +209,7 @@ let dragOverTaskId: number | null = null;
 // 初始化
 async function init() {
   initTheme(); // 初始化主题
+  initDatetimePickers(); // 初始化日期时间选择器
   setupEventListeners();
   setupDragAndDrop();
   await loadStats();
@@ -263,6 +282,220 @@ async function checkDueTasks() {
   } catch (error) {
     console.error("检查任务到期失败:", error);
   }
+}
+
+// 初始化日期时间选择器
+function initDatetimePickers() {
+  const currentYear = new Date().getFullYear();
+
+  // 初始化年份选择器 (当前年到后5年)
+  const yearOptions = [];
+  for (let y = currentYear; y <= currentYear + 5; y++) {
+    yearOptions.push(`<option value="${y}">${y}</option>`);
+  }
+
+  // 初始化月份选择器 (1-12)
+  const monthOptions = [];
+  for (let m = 1; m <= 12; m++) {
+    monthOptions.push(`<option value="${m.toString().padStart(2, '0')}">${m}</option>`);
+  }
+
+  // 初始化日期选择器 (1-31)
+  const dayOptions = [];
+  for (let d = 1; d <= 31; d++) {
+    dayOptions.push(`<option value="${d.toString().padStart(2, '0')}">${d}</option>`);
+  }
+
+  // 初始化小时选择器 (0-23)
+  const hourOptions = [];
+  for (let h = 0; h <= 23; h++) {
+    hourOptions.push(`<option value="${h.toString().padStart(2, '0')}" ${h === 23 ? 'selected' : ''}>${h.toString().padStart(2, '0')}</option>`);
+  }
+
+  // 初始化分钟选择器 (0-59，默认59)
+  const minuteOptions = [];
+  for (let min = 0; min <= 59; min++) {
+    minuteOptions.push(`<option value="${min.toString().padStart(2, '0')}" ${min === 59 ? 'selected' : ''}>${min.toString().padStart(2, '0')}</option>`);
+  }
+
+  // 设置任务创建的日期选择器
+  elements.taskDueYear.innerHTML = yearOptions.join('');
+  elements.taskDueMonth.innerHTML = monthOptions.join('');
+  elements.taskDueDay.innerHTML = dayOptions.join('');
+  elements.taskDueHour.innerHTML = hourOptions.join('');
+  elements.taskDueMinute.innerHTML = minuteOptions.join('');
+
+  // 设置批量创建任务的日期选择器
+  elements.batchDueYear.innerHTML = yearOptions.join('');
+  elements.batchDueMonth.innerHTML = monthOptions.join('');
+  elements.batchDueDay.innerHTML = dayOptions.join('');
+  elements.batchDueHour.innerHTML = hourOptions.join('');
+  elements.batchDueMinute.innerHTML = minuteOptions.join('');
+
+  // 监听月份变化，动态调整日期选择器的天数
+  elements.taskDueMonth.addEventListener('change', () => updateDayOptions(elements.taskDueYear, elements.taskDueMonth, elements.taskDueDay));
+  elements.taskDueYear.addEventListener('change', () => updateDayOptions(elements.taskDueYear, elements.taskDueMonth, elements.taskDueDay));
+  elements.batchDueMonth.addEventListener('change', () => updateDayOptions(elements.batchDueYear, elements.batchDueMonth, elements.batchDueDay));
+  elements.batchDueYear.addEventListener('change', () => updateDayOptions(elements.batchDueYear, elements.batchDueMonth, elements.batchDueDay));
+
+  // 初始化简单日期选择器的默认值
+  initSimpleDatePicker();
+
+  // 初始化查询日期选择器
+  initQueryDatePickers();
+
+  // 绑定自定义时间checkbox事件
+  elements.taskCustomTime.addEventListener('change', () => {
+    elements.taskDatetimePicker.style.display = elements.taskCustomTime.checked ? 'flex' : 'none';
+    if (elements.taskCustomTime.checked) {
+      // 同步简单日期选择器的值到详细选择器
+      syncSimpleToDetailedDate(elements.taskDueDateSimple, elements.taskDueYear, elements.taskDueMonth, elements.taskDueDay);
+    }
+  });
+
+  // 绑定批量创建的自定义时间checkbox事件
+  elements.batchCustomTime.addEventListener('change', () => {
+    elements.batchDatetimePicker.style.display = elements.batchCustomTime.checked ? 'flex' : 'none';
+    if (elements.batchCustomTime.checked) {
+      // 同步简单日期选择器的值到详细选择器
+      syncSimpleToDetailedDate(elements.batchDueDateSimple, elements.batchDueYear, elements.batchDueMonth, elements.batchDueDay);
+    }
+  });
+
+  // 监听简单日期选择器变化，同步到详细选择器（当详细选择器可见时）
+  elements.taskDueDateSimple.addEventListener('change', () => {
+    if (elements.taskCustomTime.checked) {
+      syncSimpleToDetailedDate(elements.taskDueDateSimple, elements.taskDueYear, elements.taskDueMonth, elements.taskDueDay);
+    }
+  });
+
+  elements.batchDueDateSimple.addEventListener('change', () => {
+    if (elements.batchCustomTime.checked) {
+      syncSimpleToDetailedDate(elements.batchDueDateSimple, elements.batchDueYear, elements.batchDueMonth, elements.batchDueDay);
+    }
+  });
+}
+
+// 初始化简单日期选择器的默认值
+function initSimpleDatePicker() {
+  const today = new Date();
+  const defaultDate = formatDateForInput(today);
+  elements.taskDueDateSimple.value = defaultDate;
+  elements.batchDueDateSimple.value = defaultDate;
+}
+
+// 同步简单日期选择器的值到详细选择器
+function syncSimpleToDetailedDate(
+  simpleInput: HTMLInputElement,
+  yearSelect: HTMLSelectElement,
+  monthSelect: HTMLSelectElement,
+  daySelect: HTMLSelectElement
+) {
+  if (!simpleInput.value) return;
+
+  const date = new Date(simpleInput.value + 'T00:00:00');
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+
+  yearSelect.value = year.toString();
+  monthSelect.value = month;
+  // 需要先更新日期选择器的天数
+  updateDayOptions(yearSelect, monthSelect, daySelect);
+  daySelect.value = day;
+}
+
+// 格式化日期为 YYYY-MM-DD
+function formatDateForInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// 初始化查询日期选择器
+function initQueryDatePickers() {
+  const currentYear = new Date().getFullYear();
+
+  // 初始化年份选择器 (当前年到前5年)
+  const yearOptions = [];
+  for (let y = currentYear; y >= currentYear - 5; y--) {
+    yearOptions.push(`<option value="${y}">${y}</option>`);
+  }
+
+  // 初始化月份选择器 (1-12)
+  const monthOptions = [];
+  for (let m = 1; m <= 12; m++) {
+    monthOptions.push(`<option value="${m.toString().padStart(2, '0')}" ${m === new Date().getMonth() + 1 ? 'selected' : ''}>${m}</option>`);
+  }
+
+  // 初始化日期选择器 (1-31)
+  const dayOptions = [];
+  const today = new Date();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  for (let d = 1; d <= daysInMonth; d++) {
+    dayOptions.push(`<option value="${d.toString().padStart(2, '0')}" ${d === today.getDate() ? 'selected' : ''}>${d}</option>`);
+  }
+
+  // 设置查询开始日期选择器
+  elements.queryStartYear.innerHTML = yearOptions.join('');
+  elements.queryStartMonth.innerHTML = monthOptions.join('');
+  elements.queryStartDay.innerHTML = dayOptions.join('');
+
+  // 设置查询结束日期选择器 (默认为当天)
+  elements.queryEndYear.innerHTML = yearOptions.join('');
+  elements.queryEndMonth.innerHTML = monthOptions.join('');
+  elements.queryEndDay.innerHTML = dayOptions.join('');
+
+  // 监听月份和年份变化，动态调整日期选择器的天数
+  elements.queryStartMonth.addEventListener('change', () => updateDayOptions(elements.queryStartYear, elements.queryStartMonth, elements.queryStartDay));
+  elements.queryStartYear.addEventListener('change', () => updateDayOptions(elements.queryStartYear, elements.queryStartMonth, elements.queryStartDay));
+  elements.queryEndMonth.addEventListener('change', () => updateDayOptions(elements.queryEndYear, elements.queryEndMonth, elements.queryEndDay));
+  elements.queryEndYear.addEventListener('change', () => updateDayOptions(elements.queryEndYear, elements.queryEndMonth, elements.queryEndDay));
+}
+
+// 更新日期选择器的天数（根据月份和年份）
+function updateDayOptions(yearSelect: HTMLSelectElement, monthSelect: HTMLSelectElement, daySelect: HTMLSelectElement) {
+  const year = parseInt(yearSelect.value);
+  const month = parseInt(monthSelect.value);
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const currentDay = parseInt(daySelect.value);
+  let newDay = currentDay;
+
+  // 如果当前选择的天数超过了该月的最大天数，调整为该月最大天数
+  if (currentDay > daysInMonth) {
+    newDay = daysInMonth;
+  }
+
+  // 重新生成日期选项
+  let dayOptions = '';
+  for (let d = 1; d <= daysInMonth; d++) {
+    dayOptions += `<option value="${d.toString().padStart(2, '0')}" ${d === newDay ? 'selected' : ''}>${d}</option>`;
+  }
+  daySelect.innerHTML = dayOptions;
+}
+
+// 组合日期时间选择器的值为日期字符串
+function combineDatetime(
+  yearSelect: HTMLSelectElement,
+  monthSelect: HTMLSelectElement,
+  daySelect: HTMLSelectElement,
+  hourSelect: HTMLSelectElement,
+  minuteSelect: HTMLSelectElement
+): string | null {
+  const year = yearSelect.value;
+  const month = monthSelect.value;
+  const day = daySelect.value;
+  const hour = hourSelect.value;
+  const minute = minuteSelect.value;
+
+  // 检查是否所有值都已选择
+  if (!year || !month || !day || !hour || !minute) {
+    return null;
+  }
+
+  return `${year}-${month}-${day} ${hour}:${minute}:00`;
 }
 
 // 主题初始化和切换
@@ -810,6 +1043,13 @@ function closeModal() {
   elements.modalNewTask.classList.remove("active");
   elements.formNewTask.reset();
 
+  // 重置自定义时间选择器
+  elements.taskCustomTime.checked = false;
+  elements.taskDatetimePicker.style.display = 'none';
+
+  // 重置简单日期选择器
+  initSimpleDatePicker();
+
   // 重置编辑模式
   if (editingTaskId !== null) {
     editingTaskId = null;
@@ -831,6 +1071,13 @@ function closeModal() {
 function closeBatchModal() {
   elements.modalBatchTask.classList.remove("active");
   elements.formBatchTask.reset();
+
+  // 重置自定义时间选择器
+  elements.batchCustomTime.checked = false;
+  elements.batchDatetimePicker.style.display = 'none';
+
+  // 重置简单日期选择器
+  initSimpleDatePicker();
 }
 
 // 加载任务
@@ -1011,13 +1258,26 @@ function renderTasks(tasks: (Task & { pointsStats?: TaskPointStats | null })[]) 
     .join("");
 }
 
+// 组合查询日期选择器的值为日期字符串
+function combineQueryDate(yearSelect: HTMLSelectElement, monthSelect: HTMLSelectElement, daySelect: HTMLSelectElement): string | undefined {
+  const year = yearSelect.value;
+  const month = monthSelect.value;
+  const day = daySelect.value;
+
+  if (!year || !month || !day) {
+    return undefined;
+  }
+
+  return `${year}-${month}-${day}`;
+}
+
 // 加载历史记录
 async function loadHistory() {
   try {
     const filter: QueryFilter = {
       task_type: elements.queryTaskType.value !== "all" ? elements.queryTaskType.value : undefined,
-      start_date: elements.queryStartDate.value || undefined,
-      end_date: elements.queryEndDate.value || undefined,
+      start_date: combineQueryDate(elements.queryStartYear, elements.queryStartMonth, elements.queryStartDay),
+      end_date: combineQueryDate(elements.queryEndYear, elements.queryEndMonth, elements.queryEndDay),
       date_field: elements.queryDateField.value,
     };
 
@@ -1067,7 +1327,7 @@ function renderHistory(tasks: (Task & { pointsStats?: TaskPointStats | null })[]
       ${tasks
         .map(
           (task) => `
-        <div class="commit-item ${task.completed ? "completed" : ""}" data-id="${task.id}">
+        <div class="commit-item ${historyType === "uncompleted" ? "uncompleted-history" : (task.completed ? "completed" : "")}" data-id="${task.id}">
           <div class="commit-header">
             <span class="commit-title">${escapeHtml(task.title)}</span>
             <span class="commit-time">${task.completed_at ? formatDate(task.completed_at) : ""}</span>
@@ -1154,7 +1414,30 @@ async function createTask() {
 
   const taskTypeInput = document.querySelector('input[name="task-type"]:checked') as HTMLInputElement;
   const taskType = taskTypeInput?.value || "daily";
-  const dueDate = elements.taskDueDate.value || null;
+
+  let dueDate: string | null = null;
+
+  // 如果选择了自定义时间，则使用详细选择器
+  if (elements.taskCustomTime.checked) {
+    dueDate = combineDatetime(
+      elements.taskDueYear,
+      elements.taskDueMonth,
+      elements.taskDueDay,
+      elements.taskDueHour,
+      elements.taskDueMinute
+    );
+
+    // 验证：自定义截止时间不能小于当前时间
+    if (dueDate) {
+      const dueDateTime = new Date(dueDate.replace(' ', 'T'));
+      const now = new Date();
+      if (dueDateTime < now) {
+        alert('截止时间不能早于当前时间');
+        return;
+      }
+    }
+  }
+  // 如果没有选择自定义时间，dueDate 为 null，让后端计算默认值
 
   try {
     const newTask: NewTask = {
@@ -1205,9 +1488,44 @@ async function editTask(taskId: number) {
 
     // 设置截止日期
     if (task.due_date) {
-      elements.taskDueDate.value = task.due_date.split(" ")[0];
+      const parts = task.due_date.split(" ");
+      const datePart = parts[0];
+      const timePart = parts[1] || "23:59:00";
+
+      const [year, month, day] = datePart.split("-");
+      const [hour, minute] = timePart.split(":");
+
+      // 设置简单日期选择器
+      elements.taskDueDateSimple.value = datePart;
+
+      // 设置详细选择器
+      elements.taskDueYear.value = year;
+      elements.taskDueMonth.value = month;
+      // 需要先更新日期选择器的天数
+      updateDayOptions(elements.taskDueYear, elements.taskDueMonth, elements.taskDueDay);
+      elements.taskDueDay.value = day;
+      elements.taskDueHour.value = hour;
+      elements.taskDueMinute.value = minute;
+
+      // 启用自定义时间
+      elements.taskCustomTime.checked = true;
+      elements.taskDatetimePicker.style.display = 'flex';
     } else {
-      elements.taskDueDate.value = "";
+      // 重置选择器
+      const today = new Date();
+      const defaultDate = formatDateForInput(today);
+      elements.taskDueDateSimple.value = defaultDate;
+
+      const currentYear = today.getFullYear();
+      elements.taskDueYear.value = currentYear.toString();
+      elements.taskDueMonth.value = "01";
+      elements.taskDueDay.value = "01";
+      elements.taskDueHour.value = "23";
+      elements.taskDueMinute.value = "59";
+
+      // 禁用自定义时间
+      elements.taskCustomTime.checked = false;
+      elements.taskDatetimePicker.style.display = 'none';
     }
 
     // 修改表单标题和按钮
@@ -1237,7 +1555,30 @@ async function saveTaskEdit() {
 
   const taskTypeInput = document.querySelector('input[name="task-type"]:checked') as HTMLInputElement;
   const taskType = taskTypeInput?.value || "daily";
-  const dueDate = elements.taskDueDate.value || null;
+
+  let dueDate: string | null = null;
+
+  // 如果选择了自定义时间，则使用详细选择器
+  if (elements.taskCustomTime.checked) {
+    dueDate = combineDatetime(
+      elements.taskDueYear,
+      elements.taskDueMonth,
+      elements.taskDueDay,
+      elements.taskDueHour,
+      elements.taskDueMinute
+    );
+
+    // 验证：自定义截止时间不能小于当前时间
+    if (dueDate) {
+      const dueDateTime = new Date(dueDate.replace(' ', 'T'));
+      const now = new Date();
+      if (dueDateTime < now) {
+        alert('截止时间不能早于当前时间');
+        return;
+      }
+    }
+  }
+  // 如果没有选择自定义时间，dueDate 为 null，让后端计算默认值
 
   try {
     const updateTask: UpdateTask = {
@@ -1279,7 +1620,30 @@ async function createTasksBatch() {
 
   const taskTypeInput = document.querySelector('input[name="batch-task-type"]:checked') as HTMLInputElement;
   const taskType = taskTypeInput?.value || "daily";
-  const dueDate = elements.batchDueDate.value || null;
+
+  let dueDate: string | null = null;
+
+  // 如果选择了自定义时间，则使用详细选择器
+  if (elements.batchCustomTime.checked) {
+    dueDate = combineDatetime(
+      elements.batchDueYear,
+      elements.batchDueMonth,
+      elements.batchDueDay,
+      elements.batchDueHour,
+      elements.batchDueMinute
+    );
+
+    // 验证：自定义截止时间不能小于当前时间
+    if (dueDate) {
+      const dueDateTime = new Date(dueDate.replace(' ', 'T'));
+      const now = new Date();
+      if (dueDateTime < now) {
+        alert('截止时间不能早于当前时间');
+        return;
+      }
+    }
+  }
+  // 如果没有选择自定义时间，dueDate 为 null，让后端计算默认值
 
   // 按行分割任务标题
   const titles = batchText

@@ -313,11 +313,25 @@
             <div class="query-row">
               <div class="query-group">
                 <label>开始日期</label>
-                <input type="date" id="query-start-date">
+                <div class="datetime-picker-row">
+                  <select id="query-start-year" class="year-select"></select>
+                  <span class="datetime-separator">年</span>
+                  <select id="query-start-month" class="month-select"></select>
+                  <span class="datetime-separator">月</span>
+                  <select id="query-start-day" class="day-select"></select>
+                  <span class="datetime-separator">日</span>
+                </div>
               </div>
               <div class="query-group">
                 <label>结束日期</label>
-                <input type="date" id="query-end-date">
+                <div class="datetime-picker-row">
+                  <select id="query-end-year" class="year-select"></select>
+                  <span class="datetime-separator">年</span>
+                  <select id="query-end-month" class="month-select"></select>
+                  <span class="datetime-separator">月</span>
+                  <select id="query-end-day" class="day-select"></select>
+                  <span class="datetime-separator">日</span>
+                </div>
               </div>
               <button class="btn-query" id="btn-query">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -443,6 +457,20 @@
             </div>
 
             <div class="settings-section">
+              <h2>导出说明</h2>
+              <div class="format-help">
+                <div class="format-item">
+                  <code>导出当前任务</code>
+                  <span>导出所有未完成的任务（可重新导入使用）</span>
+                </div>
+                <div class="format-item">
+                  <code>导出提交记录</code>
+                  <span>导出已完成和未完成的历史记录（包含完成时间等信息）</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section">
               <h2>JSON 格式说明</h2>
               <div class="format-help">
                 <div class="format-item">
@@ -561,7 +589,24 @@
               截止日期
               <span class="due-date-hint" id="due-date-hint">（每日当天23:59，每周下周当天23:59，每月下月当天23:59，每年12月31日23:59）</span>
             </label>
-            <input type="date" id="task-due-date">
+            <div class="date-picker-row">
+              <input type="date" id="task-due-date-simple">
+              <label class="custom-time-toggle">
+                <input type="checkbox" id="task-custom-time">
+                <span>自定义时间</span>
+              </label>
+            </div>
+            <div class="datetime-picker" id="task-datetime-picker" style="display: none;">
+              <select id="task-due-year"></select>
+              <span class="datetime-separator">年</span>
+              <select id="task-due-month"></select>
+              <span class="datetime-separator">月</span>
+              <select id="task-due-day"></select>
+              <span class="datetime-separator">日</span>
+              <select id="task-due-hour"></select>
+              <span class="datetime-separator">:</span>
+              <select id="task-due-minute"></select>
+            </div>
           </div>
           <div class="form-actions">
             <button type="button" class="btn-cancel" id="btn-cancel">取消</button>
@@ -616,7 +661,24 @@
               截止日期
               <span class="due-date-hint">（每日当天23:59，每周下周当天23:59，每月下月当天23:59，每年12月31日23:59）</span>
             </label>
-            <input type="date" id="batch-due-date">
+            <div class="date-picker-row">
+              <input type="date" id="batch-due-date-simple">
+              <label class="custom-time-toggle">
+                <input type="checkbox" id="batch-custom-time">
+                <span>自定义时间</span>
+              </label>
+            </div>
+            <div class="datetime-picker" id="batch-datetime-picker" style="display: none;">
+              <select id="batch-due-year"></select>
+              <span class="datetime-separator">年</span>
+              <select id="batch-due-month"></select>
+              <span class="datetime-separator">月</span>
+              <select id="batch-due-day"></select>
+              <span class="datetime-separator">日</span>
+              <select id="batch-due-hour"></select>
+              <span class="datetime-separator">:</span>
+              <select id="batch-due-minute"></select>
+            </div>
           </div>
           <div class="form-actions">
             <button type="button" class="btn-cancel" id="btn-batch-cancel">取消</button>
